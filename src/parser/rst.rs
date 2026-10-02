@@ -251,12 +251,18 @@ impl RstParser {
                 continue;
             }
             if line.starts_with('+') && line.trim_end().ends_with('+') || line.starts_with("===") {
-                // Grid or simple table: keep the ASCII art as-is.
                 let n = lines[i..].iter().take_while(|l| !is_blank(l)).count();
-                out.push(Block::CodeBlock {
+                let rows = &lines[i..i + n];
+                let table = if line.starts_with('+') {
+                    grid_table(rows)
+                } else {
+                    simple_table(rows)
+                };
+                // Unsupported layouts (e.g. spanning cells) stay as ASCII art.
+                out.push(table.unwrap_or_else(|| Block::CodeBlock {
                     lang: None,
-                    code: join(&lines[i..i + n]),
-                });
+                    code: join(rows),
+                }));
                 i += n;
                 continue;
             }
@@ -381,6 +387,154 @@ impl RstParser {
     }
 }
 
+fn table_block(header: Vec<String>, rows: Vec<Vec<String>>) -> Option<Block> {
+    let ncols = rows.iter().map(Vec::len).chain([header.len()]).max()?;
+    if ncols == 0 || (rows.is_empty() && header.is_empty()) {
+        return None;
+    }
+    let cells = |r: Vec<String>| -> Vec<Vec<Inline>> {
+        r.iter().map(|c| inline::parse(c.trim(), &SYNTAX)).collect()
+    };
+    Some(Block::Table {
+        aligns: vec![Align::None; ncols],
+        header: cells(header),
+        rows: rows.into_iter().map(cells).collect(),
+    })
+}
+
+/// Text of `chars[from..to]`, clamped to the line length.
+fn slice(chars: &[char], from: usize, to: usize) -> String {
+    let end = to.min(chars.len());
+    if from >= end {
+        return String::new();
+    }
+    chars[from..end]
+        .iter()
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+/// Appends `text` to a cell, joining continuation lines with a space.
+fn append(cell: &mut String, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    if !cell.is_empty() {
+        cell.push(' ');
+    }
+    cell.push_str(text);
+}
+
+/// `+---+---+` grid table; `+===+` marks the end of the header.
+fn grid_table(lines: &[&str]) -> Option<Block> {
+    let border: Vec<char> = lines.first()?.trim_end().chars().collect();
+    let cols: Vec<usize> = border
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| **c == '+')
+        .map(|(i, _)| i)
+        .collect();
+    if cols.len() < 2 {
+        return None;
+    }
+    let ncols = cols.len() - 1;
+    let mut header = Vec::new();
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut cur = vec![String::new(); ncols];
+    let mut has_content = false;
+    for line in &lines[1..] {
+        let chars: Vec<char> = line.trim_end().chars().collect();
+        if chars.first() == Some(&'+') {
+            // Row separator; a different column layout means spanning cells.
+            let seps: Vec<usize> = chars
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| **c == '+')
+                .map(|(i, _)| i)
+                .collect();
+            if seps != cols {
+                return None;
+            }
+            if has_content {
+                let row = std::mem::replace(&mut cur, vec![String::new(); ncols]);
+                if chars.contains(&'=') && header.is_empty() && rows.is_empty() {
+                    header = row;
+                } else {
+                    rows.push(row);
+                }
+            }
+            has_content = false;
+            continue;
+        }
+        if chars.first() != Some(&'|') {
+            return None;
+        }
+        for c in 0..ncols {
+            append(&mut cur[c], &slice(&chars, cols[c] + 1, cols[c + 1]));
+        }
+        has_content = true;
+    }
+    table_block(header, rows)
+}
+
+/// `=====  =====` simple table; a second border closes the header.
+fn simple_table(lines: &[&str]) -> Option<Block> {
+    let is_border = |l: &str| {
+        let t = l.trim_end();
+        !t.is_empty() && t.chars().all(|c| c == '=' || c == ' ')
+    };
+    let border: Vec<char> = lines.first()?.trim_end().chars().collect();
+    let mut cols = Vec::new();
+    for (i, c) in border.iter().enumerate() {
+        if *c == '=' && (i == 0 || border[i - 1] == ' ') {
+            cols.push(i);
+        }
+    }
+    if cols.len() < 2 {
+        return None;
+    }
+    let borders: Vec<usize> = (0..lines.len()).filter(|&i| is_border(lines[i])).collect();
+    let header_end = (borders.len() >= 3).then(|| borders[1]);
+
+    let mut header = Vec::new();
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for (n, line) in lines.iter().enumerate().skip(1) {
+        if is_border(line) {
+            if Some(n) == header_end {
+                // Multi-line headers merge into one row.
+                for row in std::mem::take(&mut rows) {
+                    if header.is_empty() {
+                        header = row;
+                    } else {
+                        for (a, b) in header.iter_mut().zip(&row) {
+                            append(a, b);
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        let chars: Vec<char> = line.chars().collect();
+        let cells: Vec<String> = (0..cols.len())
+            .map(|c| {
+                let end = cols.get(c + 1).copied().unwrap_or(usize::MAX);
+                slice(&chars, cols[c], end)
+            })
+            .collect();
+        // A blank first column continues the previous row.
+        match rows.last_mut() {
+            Some(prev) if cells[0].is_empty() => {
+                for (a, b) in prev.iter_mut().zip(&cells) {
+                    append(a, b);
+                }
+            }
+            _ => rows.push(cells),
+        }
+    }
+    table_block(header, rows)
+}
+
 /// Number of following lines that are blank or indented at least `min`.
 fn indented_len(lines: &[&str], min: usize) -> usize {
     let mut n = 0;
@@ -415,6 +569,33 @@ fn join(lines: &[&str]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grid_and_simple_tables() {
+        let doc = parse(
+            "+------+-------+\n| A    | B     |\n+======+=======+\n| 1    | two   |\n| more | lines |\n+------+-------+\n\n=====  =====\nX      Y\n=====  =====\n1      2\n3      4\n=====  =====\n",
+        );
+        let Block::Table { header, rows, .. } = &doc.blocks[0] else {
+            panic!("{:?}", doc.blocks[0])
+        };
+        assert_eq!(plain_text(&header[1]), "B");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(plain_text(&rows[0][0]), "1 more");
+        assert_eq!(plain_text(&rows[0][1]), "two lines");
+
+        let Block::Table { header, rows, .. } = &doc.blocks[1] else {
+            panic!("{:?}", doc.blocks[1])
+        };
+        assert_eq!(plain_text(&header[0]), "X");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(plain_text(&rows[1][1]), "4");
+    }
+
+    #[test]
+    fn spanning_grid_falls_back_to_code() {
+        let doc = parse("+---+---+\n| a | b |\n+---+---+\n| wide  |\n+-------+\n");
+        assert!(matches!(doc.blocks[0], Block::CodeBlock { .. }));
+    }
 
     #[test]
     fn parses_rst() {

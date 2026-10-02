@@ -218,7 +218,13 @@ pub fn natural_width(segs: &[Seg]) -> usize {
 
 /// Hard-wraps a single line of spans at `max` columns (used for code).
 pub fn hard_wrap(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
-    let max = max.max(1);
+    hard_wrap_hanging(spans, max, max)
+}
+
+/// Like `hard_wrap`, but continuation lines are limited to `rest` columns.
+pub fn hard_wrap_hanging(spans: &[Span], first: usize, rest: usize) -> Vec<Vec<Span>> {
+    let rest = rest.max(1);
+    let mut max = first.max(1);
     let mut lines = Vec::new();
     let mut cur = Vec::new();
     let mut cur_w = 0;
@@ -237,6 +243,7 @@ pub fn hard_wrap(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
                 push_span(&mut cur, s.with_text(&std::mem::take(&mut piece)));
                 lines.push(std::mem::take(&mut cur));
                 cur_w = 0;
+                max = rest;
             }
             piece.push_str(g);
             cur_w += gw;
@@ -303,6 +310,15 @@ mod tests {
             Span::new("defgh", Style::new().bold()),
         ];
         assert_eq!(text(&hard_wrap(&spans, 4)), ["abcd", "efgh"]);
+    }
+
+    #[test]
+    fn hanging_wrap_uses_narrower_continuation() {
+        let spans = vec![Span::new("abcdefghij", Style::new())];
+        assert_eq!(
+            text(&hard_wrap_hanging(&spans, 4, 2)),
+            ["abcd", "ef", "gh", "ij"]
+        );
     }
 
     #[test]

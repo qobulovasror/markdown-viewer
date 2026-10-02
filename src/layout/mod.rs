@@ -381,9 +381,19 @@ impl Layouter<'_> {
             .unwrap_or(code)
             .replace('\t', "    ");
         for src_line in crate::highlight::highlight(&code, lang, t).iter() {
-            for row in wrap::hard_wrap(src_line, inner) {
-                let pad = inner.saturating_sub(wrap::width(&row));
+            // Continuation rows of a wrapped line start with a dim `↪ `
+            // (skipped when the box is too narrow to fit it).
+            let marker = inner >= 4;
+            let rest = if marker { inner - 2 } else { inner };
+            let rows = wrap::hard_wrap_hanging(src_line, inner, rest);
+            for (n, row) in rows.into_iter().enumerate() {
+                let mut row_w = wrap::width(&row);
                 let mut spans = vec![Span::new("│ ", b)];
+                if n > 0 && marker {
+                    spans.push(Span::new("↪ ", t.dim));
+                    row_w += 2;
+                }
+                let pad = inner.saturating_sub(row_w);
                 spans.extend(row);
                 spans.push(Span::new(format!("{} │", " ".repeat(pad)), b));
                 out.push(Line::new(spans));

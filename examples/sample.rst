@@ -27,3 +27,19 @@ Text with **bold**, *italic*, ``code`` and a `link <https://docutils.sourceforge
 Literal block::
 
     plain literal
+
+Grid table:
+
++--------+---------------+
+| Name   | Description   |
++========+===============+
+| mdv    | Terminal      |
+|        | viewer        |
++--------+---------------+
+
+=====  ======
+Key    Action
+=====  ======
+q      Quit
+?      Help
+=====  ======
