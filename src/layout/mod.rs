@@ -497,8 +497,15 @@ impl Layouter<'_> {
                 Inline::Emph(c) => self.flatten(c, base.patch(t.emph), link, out),
                 Inline::Strong(c) => self.flatten(c, base.patch(t.strong), link, out),
                 Inline::Strike(c) => self.flatten(c, base.patch(t.strike), link, out),
-                Inline::Sup(c) => out.push(span(crate::math::superscript(&plain_text(c)), base)),
-                Inline::Sub(c) => out.push(span(crate::math::subscript(&plain_text(c)), base)),
+                // Unicode super/subscripts when every character has one, else plain text.
+                Inline::Sup(c) => match crate::math::try_superscript(&plain_text(c)) {
+                    Some(s) => out.push(span(s, base)),
+                    None => self.flatten(c, base, link, out),
+                },
+                Inline::Sub(c) => match crate::math::try_subscript(&plain_text(c)) {
+                    Some(s) => out.push(span(s, base)),
+                    None => self.flatten(c, base, link, out),
+                },
                 Inline::Link { url, content } => {
                     let id = self.push_link(url);
                     self.flatten(content, base.patch(t.link), Some(id), out);

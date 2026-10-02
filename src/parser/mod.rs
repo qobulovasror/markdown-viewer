@@ -65,12 +65,18 @@ pub fn parse(src: &str, format: Format) -> Document {
     for b in &mut doc.blocks {
         postprocess_block(b);
     }
+    doc.blocks
+        .retain(|b| !matches!(b, Block::Plain(v) if v.is_empty()));
     doc
 }
 
 fn postprocess_block(b: &mut Block) {
     match b {
         Block::Html(h) => {
+            if let Some(heading) = html_heading(h) {
+                *b = heading;
+                return;
+            }
             let inl = html::to_inlines(h);
             *b = if inl.is_empty() {
                 Block::Plain(Vec::new())
@@ -105,6 +111,25 @@ fn postprocess_block(b: &mut Block) {
     }
 }
 
+/// `<h1 ...>Title</h1>` blocks become real headings (shown in the TOC).
+fn html_heading(html: &str) -> Option<Block> {
+    let t = html.trim();
+    let rest = t.strip_prefix("<h").or_else(|| t.strip_prefix("<H"))?;
+    let level = rest
+        .chars()
+        .next()?
+        .to_digit(10)
+        .filter(|l| (1..=6).contains(l))? as u8;
+    let close = format!("</h{level}>");
+    if !t.to_ascii_lowercase().ends_with(&close) {
+        return None;
+    }
+    let mut content = html::to_inlines(t);
+    postprocess_inlines(&mut content);
+    let id = markdown::slugify(&plain_text(&content));
+    Some(Block::Heading { level, id, content })
+}
+
 /// Emoji shortcodes and inline HTML tags (`<a>`, `<sup>`, `<kbd>`, ...).
 fn postprocess_inlines(inl: &mut Vec<Inline>) {
     let items = std::mem::take(inl);
@@ -132,7 +157,8 @@ fn postprocess_inlines(inl: &mut Vec<Inline>) {
                 .collect::<String>()
                 .to_ascii_lowercase();
             const WRAPPERS: &[&str] = &[
-                "a", "sup", "sub", "b", "strong", "i", "em", "kbd", "code", "del", "s", "u", "mark",
+                "a", "sup", "sub", "b", "strong", "i", "em", "kbd", "code", "del", "s", "u",
+                "mark", "summary",
             ];
             if WRAPPERS.contains(&name.as_str()) {
                 if !closing {
@@ -164,6 +190,11 @@ fn postprocess_inlines(inl: &mut Vec<Inline>) {
                         "b" | "strong" => Inline::Strong(children),
                         "kbd" | "code" => Inline::Code(plain_text(&children)),
                         "del" | "s" => Inline::Strike(children),
+                        "summary" => {
+                            let mut c = vec![Inline::Text("▸ ".into())];
+                            c.extend(children);
+                            Inline::Strong(c)
+                        }
                         _ => Inline::Emph(children),
                     };
                     target(&mut stack, &mut out).push(wrapped);
@@ -251,6 +282,21 @@ mod tests {
                 .any(|i| matches!(i, Inline::Link { url, .. } if url == "https://x.dev"))
         );
         assert!(p.iter().any(|i| matches!(i, Inline::Sup(_))));
+    }
+
+    #[test]
+    fn html_heading_and_summary() {
+        let doc = parse(
+            "<h1 align=\"center\">mdv</h1>\n\n<details>\n<summary><b>Keys</b></summary>\n\ntext\n\n</details>\n",
+            Format::Markdown,
+        );
+        assert!(matches!(&doc.blocks[0], Block::Heading { level: 1, id, .. } if id == "mdv"));
+        let Block::Paragraph(p) = &doc.blocks[1] else {
+            panic!("{:?}", doc.blocks)
+        };
+        assert!(matches!(&p[0], Inline::Strong(_)));
+        assert_eq!(plain_text(p), "▸ Keys");
+        assert_eq!(doc.blocks.len(), 3);
     }
 
     #[test]

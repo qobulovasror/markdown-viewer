@@ -238,6 +238,14 @@ fn map_all(s: &str, table: &[(char, char)]) -> Option<String> {
         .collect()
 }
 
+pub fn try_superscript(s: &str) -> Option<String> {
+    map_all(s, SUPER)
+}
+
+pub fn try_subscript(s: &str) -> Option<String> {
+    map_all(s, SUB)
+}
+
 /// Converts text to superscript characters, or `^(text)` if impossible.
 pub fn superscript(s: &str) -> String {
     map_all(s, SUPER).unwrap_or_else(|| {
