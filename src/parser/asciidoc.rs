@@ -37,7 +37,10 @@ fn special(rest: &str) -> Option<(Inline, usize)> {
         ("image", rest.len() - r.len())
     } else if let Some(r) = rest.strip_prefix("link:") {
         ("link", rest.len() - r.len())
-    } else if rest.starts_with("http://") || rest.starts_with("https://") || rest.starts_with("mailto:") {
+    } else if rest.starts_with("http://")
+        || rest.starts_with("https://")
+        || rest.starts_with("mailto:")
+    {
         ("link", 0)
     } else {
         return None;
@@ -53,7 +56,13 @@ fn special(rest: &str) -> Option<(Inline, usize)> {
     let used = target_start + close + 1;
     if kind == "image" {
         let alt = text.split(',').next().unwrap_or("").to_string();
-        return Some((Inline::Image { url: target.to_string(), alt }, used));
+        return Some((
+            Inline::Image {
+                url: target.to_string(),
+                alt,
+            },
+            used,
+        ));
     }
     let text = text.trim_end_matches('^');
     let content = if text.is_empty() {
@@ -172,9 +181,13 @@ impl AdocParser {
                 i += 1;
                 continue;
             }
-            if t.starts_with('.') && !t.starts_with("..") && t.len() > 1 && !t[1..].starts_with(' ') {
+            if t.starts_with('.') && !t.starts_with("..") && t.len() > 1 && !t[1..].starts_with(' ')
+            {
                 // Block title.
-                out.push(Block::Plain(vec![Inline::Strong(inline::parse(&t[1..], &SYNTAX))]));
+                out.push(Block::Plain(vec![Inline::Strong(inline::parse(
+                    &t[1..],
+                    &SYNTAX,
+                ))]));
                 i += 1;
                 continue;
             }
@@ -210,7 +223,10 @@ impl AdocParser {
                         continue;
                     }
                     _ => {
-                        let kind = ADMONITIONS.iter().find(|(n, _)| *n == style).map(|(_, k)| *k);
+                        let kind = ADMONITIONS
+                            .iter()
+                            .find(|(n, _)| *n == style)
+                            .map(|(_, k)| *k);
                         Block::BlockQuote {
                             kind,
                             blocks: self.blocks(body, false),
@@ -248,7 +264,11 @@ impl AdocParser {
                 .max(1);
             let para = &lines[i..i + n];
             let admonition = ADMONITIONS.iter().find_map(|(name, k)| {
-                para[0].trim().strip_prefix(name)?.strip_prefix(": ").map(|r| (k, r))
+                para[0]
+                    .trim()
+                    .strip_prefix(name)?
+                    .strip_prefix(": ")
+                    .map(|r| (k, r))
             });
             match admonition {
                 Some((k, first)) => {
@@ -292,7 +312,9 @@ impl AdocParser {
                     i += 1;
                     continue;
                 }
-                if let Some(Block::Plain(inl)) = items.last_mut().and_then(|it| it.blocks.first_mut()) {
+                if let Some(Block::Plain(inl)) =
+                    items.last_mut().and_then(|it| it.blocks.first_mut())
+                {
                     inl.push(Inline::SoftBreak);
                     inl.extend(inline::parse(lines[i].trim(), &SYNTAX));
                     i += 1;
@@ -364,8 +386,8 @@ fn table(lines: &[&str], attr: Option<String>) -> Block {
             }
             continue;
         }
-        if t.starts_with('|') {
-            let cells: Vec<String> = t[1..].split('|').map(|c| c.trim().to_string()).collect();
+        if let Some(row) = t.strip_prefix('|') {
+            let cells: Vec<String> = row.split('|').map(|c| c.trim().to_string()).collect();
             // A full row on one line ends the row.
             if cur.is_empty() && rows.first().is_some_and(|r| r.len() == cells.len()) {
                 rows.push(cells);
@@ -394,7 +416,12 @@ fn table(lines: &[&str], attr: Option<String>) -> Block {
     } else {
         Vec::new()
     };
-    let ncols = rows.iter().map(Vec::len).chain([header.len()]).max().unwrap_or(0);
+    let ncols = rows
+        .iter()
+        .map(Vec::len)
+        .chain([header.len()])
+        .max()
+        .unwrap_or(0);
     Block::Table {
         aligns: vec![Align::None; ncols],
         header,
@@ -414,14 +441,29 @@ mod tests {
         assert_eq!(doc.front_matter.as_deref(), Some("author: Me"));
         assert!(matches!(&doc.blocks[0], Block::Heading { level: 1, .. }));
         assert!(matches!(&doc.blocks[1], Block::Heading { level: 2, id, .. } if id == "section"));
-        let Block::Paragraph(p) = &doc.blocks[2] else { panic!("{:?}", doc.blocks[2]) };
-        assert!(p.iter().any(|i| matches!(i, Inline::Link { url, .. } if url == "https://x.dev")));
-        let Block::List { items, .. } = &doc.blocks[3] else { panic!() };
+        let Block::Paragraph(p) = &doc.blocks[2] else {
+            panic!("{:?}", doc.blocks[2])
+        };
+        assert!(
+            p.iter()
+                .any(|i| matches!(i, Inline::Link { url, .. } if url == "https://x.dev"))
+        );
+        let Block::List { items, .. } = &doc.blocks[3] else {
+            panic!()
+        };
         assert_eq!(items.len(), 2);
         assert!(matches!(items[0].blocks[1], Block::List { .. }));
         assert_eq!(items[1].task, Some(true));
-        assert!(matches!(&doc.blocks[4], Block::BlockQuote { kind: Some(Admonition::Note), .. }));
+        assert!(matches!(
+            &doc.blocks[4],
+            Block::BlockQuote {
+                kind: Some(Admonition::Note),
+                ..
+            }
+        ));
         assert!(matches!(&doc.blocks[5], Block::CodeBlock { lang: Some(l), .. } if l == "rust"));
-        assert!(matches!(&doc.blocks[6], Block::Table { header, rows, .. } if header.len() == 2 && rows.len() == 1));
+        assert!(
+            matches!(&doc.blocks[6], Block::Table { header, rows, .. } if header.len() == 2 && rows.len() == 1)
+        );
     }
 }

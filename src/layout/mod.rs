@@ -239,7 +239,7 @@ impl Layouter<'_> {
                 .map(str::trim)
                 .filter(|l| !l.is_empty())
                 .flat_map(|l| {
-                    wrap::hard_wrap(vec![Span::new(l, t.math)], width.saturating_sub(4))
+                    wrap::hard_wrap(&[Span::new(l, t.math)], width.saturating_sub(4))
                         .into_iter()
                         .map(|row| {
                             let mut spans = vec![Span::new("    ", t.math)];
@@ -254,7 +254,9 @@ impl Layouter<'_> {
                     return Vec::new();
                 }
                 text.lines()
-                    .flat_map(|l| self.paragraph(&[Inline::Text(l.trim().to_string())], t.dim, width))
+                    .flat_map(|l| {
+                        self.paragraph(&[Inline::Text(l.trim().to_string())], t.dim, width)
+                    })
                     .collect()
             }
             Block::Rule => vec![Line::new(vec![Span::new("─".repeat(width), t.rule)])],
@@ -269,7 +271,10 @@ impl Layouter<'_> {
         let mut out = vec![Line::new(vec![
             Span::new("╭─", b),
             Span::new(title, t.dim),
-            Span::new(format!("{}╮", "─".repeat(width.saturating_sub(3 + title.width()))), b),
+            Span::new(
+                format!("{}╮", "─".repeat(width.saturating_sub(3 + title.width()))),
+                b,
+            ),
         ])];
         for src in fm.lines() {
             let spans = match src.split_once(':') {
@@ -279,7 +284,7 @@ impl Layouter<'_> {
                 ],
                 None => vec![Span::new(src.to_string(), t.dim)],
             };
-            for row in wrap::hard_wrap(spans, inner) {
+            for row in wrap::hard_wrap(&spans, inner) {
                 let pad = inner.saturating_sub(wrap::width(&row));
                 let mut spans = vec![Span::new("│ ", b)];
                 spans.extend(row);
@@ -371,8 +376,11 @@ impl Layouter<'_> {
         top.push(Span::new("╮", b));
 
         let mut out = vec![Line::new(top)];
-        let code = code.strip_suffix('\n').unwrap_or(code).replace('\t', "    ");
-        for src_line in crate::highlight::highlight(&code, lang, t) {
+        let code = code
+            .strip_suffix('\n')
+            .unwrap_or(code)
+            .replace('\t', "    ");
+        for src_line in crate::highlight::highlight(&code, lang, t).iter() {
             for row in wrap::hard_wrap(src_line, inner) {
                 let pad = inner.saturating_sub(wrap::width(&row));
                 let mut spans = vec![Span::new("│ ", b)];
@@ -424,7 +432,13 @@ impl Layouter<'_> {
         prefix(inner, bar.clone(), bar)
     }
 
-    fn list(&mut self, start: Option<u64>, tight: bool, items: &[ListItem], width: usize) -> Vec<Line> {
+    fn list(
+        &mut self,
+        start: Option<u64>,
+        tight: bool,
+        items: &[ListItem],
+        width: usize,
+    ) -> Vec<Line> {
         let t = self.theme;
         let bullet = ["•", "◦", "▪", "▫"][self.list_depth % 4];
         let markers: Vec<(String, Style)> = items
@@ -475,13 +489,7 @@ impl Layouter<'_> {
 
     fn flatten(&mut self, inl: &[Inline], base: Style, link: Option<usize>, out: &mut Vec<Seg>) {
         let t = self.theme;
-        let span = |text: String, style: Style| {
-            Seg::Span(Span {
-                text,
-                style,
-                link,
-            })
-        };
+        let span = |text: String, style: Style| Seg::Span(Span { text, style, link });
         for i in inl {
             match i {
                 Inline::Text(s) => out.push(span(s.clone(), base)),

@@ -1,0 +1,85 @@
+---
+source: tests/snapshots.rs
+expression: "render(\"sample.md\", 72, ColorDepth::None)"
+---
+╭─ front matter ───────────────────────────────────────────────────────╮
+│ title: Sample document                                               │
+│ author: mdv                                                          │
+╰──────────────────────────────────────────────────────────────────────╯
+
+mdv — Markdown viewer
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A fast terminal viewer with italic, strike, inline code and a link. Hard
+break here
+next line. Footnote reference[1]. Math: E = mc² 🚀
+
+Lists
+────────────────────────────────────────────────────────────────────────
+
+• First item
+• Second item with a long line that should wrap nicely when the terminal
+  is narrow enough to require it
+  ◦ Nested item
+    ▪ Deeper item
+☐ Todo task
+☑ Done task
+
+1. One
+2. Two
+3. Ten
+
+Code
+────────────────────────────────────────────────────────────────────────
+
+╭─ rust ───────────────────────────────────────────────────────────────╮
+│ fn main() {                                                          │
+│     println!("Hello, world!");                                       │
+│ }                                                                    │
+╰──────────────────────────────────────────────────────────────────────╯
+
+╭──────────────────────────────────────────────────────────────────────╮
+│ indented code                                                        │
+╰──────────────────────────────────────────────────────────────────────╯
+
+Table
+────────────────────────────────────────────────────────────────────────
+
+╭────────┬─────────────────────────────────┬───────╮
+│ Name   │           Description           │ Price │
+├────────┼─────────────────────────────────┼───────┤
+│ Apple  │ A red fruit that grows on trees │ $1.20 │
+│ Banana │             Yellow              │ $0.50 │
+╰────────┴─────────────────────────────────┴───────╯
+
+Quotes
+────────────────────────────────────────────────────────────────────────
+
+│ A plain quote with bold text.
+│
+│ │ Nested quote.
+
+│ ⚠ Warning
+│ Be careful with this.
+
+│ 💡 Tip
+│ Useful hint.
+
+────────────────────────────────────────────────────────────────────────
+
+Term
+  : Definition of the term.
+
+    ∑ᵢ₌₁ⁿ xᵢ²
+
+[🖼 Logo] Centered HTML
+
+[🖼 Screenshot]
+
+▸ Third level
+
+See other doc and table section.
+
+▹ Fourth level
+
+[1] The footnote text.

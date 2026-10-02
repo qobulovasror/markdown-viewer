@@ -7,7 +7,14 @@ use nucleo_matcher::{Config, Matcher};
 
 use crate::links::is_viewable;
 
-const SKIP_DIRS: &[&str] = &["node_modules", "target", "vendor", "dist", "build", "__pycache__"];
+const SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    "vendor",
+    "dist",
+    "build",
+    "__pycache__",
+];
 const MAX_FILES: usize = 5000;
 const MAX_DEPTH: usize = 8;
 
@@ -80,7 +87,10 @@ pub fn fuzzy(files: &[PathBuf], query: &str) -> Vec<usize> {
     }
     let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
     let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
-    let names: Vec<String> = files.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+    let names: Vec<String> = files
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
     let mut scored: Vec<(u32, usize)> = names
         .iter()
         .enumerate()

@@ -111,7 +111,9 @@ mod tests {
 
     #[test]
     fn sgr_codes() {
-        let s = Style::new().fg(Color::Rgb(1, 2, 3)).add_modifier(Modifier::BOLD);
+        let s = Style::new()
+            .fg(Color::Rgb(1, 2, 3))
+            .add_modifier(Modifier::BOLD);
         assert_eq!(sgr(s), "1;38;2;1;2;3");
         assert_eq!(color_code(Color::LightRed, true), "101");
     }

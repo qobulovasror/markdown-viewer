@@ -12,8 +12,8 @@ use crate::links::{self, Target};
 use crate::parser::{self, Document};
 use crate::search::{self, Match};
 use crate::state::{Position, State};
-use crate::watch::FileWatcher;
 use crate::theme::Theme;
+use crate::watch::FileWatcher;
 
 /// Where the document text came from.
 #[derive(Debug, Clone)]
@@ -186,7 +186,11 @@ impl App {
             finder: Default::default(),
             images: None,
             pending: None,
-            focus_width: if cfg.max_width > 0 { cfg.max_width } else { 100 },
+            focus_width: if cfg.max_width > 0 {
+                cfg.max_width
+            } else {
+                100
+            },
             state,
             remember: cfg.remember_position,
             pending_restore,
@@ -368,7 +372,8 @@ impl App {
             return;
         }
         let n = self.link_refs.len();
-        let visible = |r: &LinkRef| r.line >= self.scroll && r.line < self.scroll + self.view_height;
+        let visible =
+            |r: &LinkRef| r.line >= self.scroll && r.line < self.scroll + self.view_height;
         let next = match self.link_focus {
             Some(i) if visible(&self.link_refs[i]) => {
                 if forward {
@@ -481,7 +486,11 @@ impl App {
             return;
         }
         let cur = self.search.current.unwrap_or(0);
-        let next = if forward { (cur + 1) % n } else { (cur + n - 1) % n };
+        let next = if forward {
+            (cur + 1) % n
+        } else {
+            (cur + n - 1) % n
+        };
         if (forward && next < cur) || (!forward && next > cur) {
             self.notify("Search wrapped");
         }
@@ -539,7 +548,10 @@ impl App {
     /// Switches to the next built-in theme.
     pub fn cycle_theme(&mut self) {
         let names = crate::theme::THEME_NAMES;
-        let i = names.iter().position(|n| *n == self.theme.name).unwrap_or(0);
+        let i = names
+            .iter()
+            .position(|n| *n == self.theme.name)
+            .unwrap_or(0);
         let name = names[(i + 1) % names.len()];
         self.theme = Theme::by_name(name).expect("built-in theme");
         let anchor = self.position_anchor();
@@ -575,12 +587,9 @@ impl App {
     }
 
     pub fn progress(&self) -> u16 {
-        let max = self.max_scroll();
-        if max == 0 {
-            100
-        } else {
-            (self.scroll * 100 / max) as u16
-        }
+        (self.scroll * 100)
+            .checked_div(self.max_scroll())
+            .map_or(100, |p| p as u16)
     }
 
     /// Estimated reading time in minutes (200 words per minute).

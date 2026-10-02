@@ -81,7 +81,9 @@ pub fn parse(src: &str) -> Document {
 /// `#+KEY: value`
 fn keyword(t: &str) -> Option<(&str, &str)> {
     let rest = t.strip_prefix("#+")?;
-    let end = rest.find(|c: char| c == ':' || c.is_whitespace()).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| c == ':' || c.is_whitespace())
+        .unwrap_or(rest.len());
     let (k, v) = rest.split_at(end);
     Some((k, v.strip_prefix(':').unwrap_or(v).trim()))
 }
@@ -138,7 +140,12 @@ impl OrgParser {
                         .position(|l| l.trim().to_ascii_lowercase().starts_with(&end_tag))
                         .map_or(lines.len(), |p| i + 1 + p);
                     let body = &lines[i + 1..end];
-                    let base = body.iter().filter(|l| !is_blank(l)).map(|l| indent(l)).min().unwrap_or(0);
+                    let base = body
+                        .iter()
+                        .filter(|l| !is_blank(l))
+                        .map(|l| indent(l))
+                        .min()
+                        .unwrap_or(0);
                     let body = dedent(body, base);
                     out.push(match kind {
                         "src" => Block::CodeBlock {
@@ -169,7 +176,10 @@ impl OrgParser {
                 continue;
             }
             if t.starts_with('|') {
-                let n = lines[i..].iter().take_while(|l| l.trim().starts_with('|')).count();
+                let n = lines[i..]
+                    .iter()
+                    .take_while(|l| l.trim().starts_with('|'))
+                    .count();
                 out.push(table(&lines[i..i + n]));
                 i += n;
                 continue;
@@ -186,7 +196,13 @@ impl OrgParser {
                     .count();
                 let code: Vec<&str> = lines[i..i + n]
                     .iter()
-                    .map(|l| l.trim().strip_prefix(':').unwrap_or("").strip_prefix(' ').unwrap_or(""))
+                    .map(|l| {
+                        l.trim()
+                            .strip_prefix(':')
+                            .unwrap_or("")
+                            .strip_prefix(' ')
+                            .unwrap_or("")
+                    })
                     .collect();
                 out.push(Block::CodeBlock {
                     lang: None,
@@ -204,11 +220,18 @@ impl OrgParser {
             let n = lines[i..]
                 .iter()
                 .take_while(|l| {
-                    !is_blank(l) && heading(l).is_none() && keyword(l.trim()).is_none() && marker(l).is_none() && !l.trim().starts_with('|')
+                    !is_blank(l)
+                        && heading(l).is_none()
+                        && keyword(l.trim()).is_none()
+                        && marker(l).is_none()
+                        && !l.trim().starts_with('|')
                 })
                 .count()
                 .max(1);
-            out.push(Block::Paragraph(inline::paragraph(&lines[i..i + n], &SYNTAX)));
+            out.push(Block::Paragraph(inline::paragraph(
+                &lines[i..i + n],
+                &SYNTAX,
+            )));
             i += n;
         }
         out
@@ -236,14 +259,24 @@ fn table(lines: &[&str]) -> Block {
     let rows: Vec<Vec<Vec<Inline>>> = lines
         .iter()
         .filter(|l| !is_sep(l))
-        .map(|l| table_cells(l).into_iter().map(|c| inline::parse(c, &SYNTAX)).collect())
+        .map(|l| {
+            table_cells(l)
+                .into_iter()
+                .map(|c| inline::parse(c, &SYNTAX))
+                .collect()
+        })
         .collect();
     let has_header = lines.len() > 1 && is_sep(lines[1]);
     let (header, rows) = match (has_header, rows.split_first()) {
         (true, Some((h, rest))) => (h.clone(), rest.to_vec()),
         _ => (Vec::new(), rows),
     };
-    let ncols = rows.iter().map(Vec::len).chain([header.len()]).max().unwrap_or(0);
+    let ncols = rows
+        .iter()
+        .map(Vec::len)
+        .chain([header.len()])
+        .max()
+        .unwrap_or(0);
     Block::Table {
         aligns: vec![Align::None; ncols],
         header,
@@ -262,13 +295,22 @@ mod tests {
         );
         assert_eq!(doc.front_matter.as_deref(), Some("title: Demo"));
         assert!(matches!(&doc.blocks[0], Block::Heading { level: 1, id, .. } if id == "intro"));
-        let Block::Paragraph(p) = &doc.blocks[1] else { panic!() };
+        let Block::Paragraph(p) = &doc.blocks[1] else {
+            panic!()
+        };
         assert!(p.iter().any(|i| matches!(i, Inline::Strong(_))));
-        assert!(p.iter().any(|i| matches!(i, Inline::Link { url, .. } if url == "https://x.dev")));
-        let Block::List { items, .. } = &doc.blocks[2] else { panic!() };
+        assert!(
+            p.iter()
+                .any(|i| matches!(i, Inline::Link { url, .. } if url == "https://x.dev"))
+        );
+        let Block::List { items, .. } = &doc.blocks[2] else {
+            panic!()
+        };
         assert_eq!(items[1].task, Some(true));
         assert!(matches!(items[1].blocks[1], Block::List { .. }));
         assert!(matches!(&doc.blocks[3], Block::CodeBlock { lang: Some(l), .. } if l == "rust"));
-        assert!(matches!(&doc.blocks[4], Block::Table { header, rows, .. } if header.len() == 2 && rows.len() == 1));
+        assert!(
+            matches!(&doc.blocks[4], Block::Table { header, rows, .. } if header.len() == 2 && rows.len() == 1)
+        );
     }
 }

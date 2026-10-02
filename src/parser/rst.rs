@@ -95,7 +95,10 @@ pub fn parse(src: &str) -> Document {
         .filter_map(|l| {
             let rest = l.trim().strip_prefix(".. _")?;
             let (name, url) = rest.split_once(": ")?;
-            Some((name.trim_matches('`').to_lowercase(), url.trim().to_string()))
+            Some((
+                name.trim_matches('`').to_lowercase(),
+                url.trim().to_string(),
+            ))
         })
         .collect();
     TARGETS.with(|t| *t.borrow_mut() = targets);
@@ -160,8 +163,10 @@ impl RstParser {
                 self.styles.len() - 1
             }
         };
-        self.slugs
-            .heading((level + 1).min(6) as u8, inline::parse(text.trim(), &SYNTAX))
+        self.slugs.heading(
+            (level + 1).min(6) as u8,
+            inline::parse(text.trim(), &SYNTAX),
+        )
     }
 
     fn blocks(&mut self, lines: &[&str], top: bool) -> Vec<Block> {
@@ -198,7 +203,8 @@ impl RstParser {
             literal_next = false;
 
             // Over+underlined title.
-            if let (Some(c), Some(text), Some(under)) = (adornment(line), lines.get(i + 1), lines.get(i + 2))
+            if let (Some(c), Some(text), Some(under)) =
+                (adornment(line), lines.get(i + 1), lines.get(i + 2))
                 && !is_blank(text)
                 && adornment(under) == Some(c)
             {
@@ -217,7 +223,9 @@ impl RstParser {
                 continue;
             }
             // Transition.
-            if adornment(line).is_some_and(|c| c == '-' || c == '=' || c == '*') && line.trim().len() >= 4 {
+            if adornment(line).is_some_and(|c| c == '-' || c == '=' || c == '*')
+                && line.trim().len() >= 4
+            {
                 out.push(Block::Rule);
                 i += 1;
                 continue;
@@ -231,12 +239,16 @@ impl RstParser {
                 continue;
             }
             // Field list at the top: document info.
-            if top && out.iter().all(|b| matches!(b, Block::Heading { .. })) && line.starts_with(':') {
-                if let Some((name, value)) = line[1..].split_once(": ").or_else(|| line[1..].split_once(':')) {
-                    self.front.push(format!("{}: {}", name.to_lowercase(), value.trim()));
-                    i += 1;
-                    continue;
-                }
+            if top
+                && out.iter().all(|b| matches!(b, Block::Heading { .. }))
+                && let Some(field) = line.strip_prefix(':')
+                && let Some((name, value)) =
+                    field.split_once(": ").or_else(|| field.split_once(':'))
+            {
+                self.front
+                    .push(format!("{}: {}", name.to_lowercase(), value.trim()));
+                i += 1;
+                continue;
             }
             if line.starts_with('+') && line.trim_end().ends_with('+') || line.starts_with("===") {
                 // Grid or simple table: keep the ASCII art as-is.
@@ -272,13 +284,17 @@ impl RstParser {
                 let t = last.trim_end();
                 *last = if t == "::" {
                     String::new()
-                } else if t.ends_with(" ::") {
-                    t[..t.len() - 3].to_string()
+                } else if let Some(text) = t.strip_suffix(" ::") {
+                    text.to_string()
                 } else {
                     t[..t.len() - 1].to_string()
                 };
             }
-            let refs: Vec<&str> = para.iter().map(String::as_str).filter(|s| !s.is_empty()).collect();
+            let refs: Vec<&str> = para
+                .iter()
+                .map(String::as_str)
+                .filter(|s| !s.is_empty())
+                .collect();
             if !refs.is_empty() {
                 out.push(Block::Paragraph(inline::paragraph(&refs, &SYNTAX)));
             }
@@ -338,7 +354,9 @@ impl RstParser {
                     .join("\n"),
             )),
             "admonition" => {
-                let mut blocks = vec![Block::Plain(vec![Inline::Strong(vec![Inline::Text(arg.to_string())])])];
+                let mut blocks = vec![Block::Plain(vec![Inline::Strong(vec![Inline::Text(
+                    arg.to_string(),
+                )])])];
                 blocks.extend(self.blocks(content, false));
                 out.push(Block::BlockQuote { kind: None, blocks });
             }
@@ -377,8 +395,14 @@ fn indented_len(lines: &[&str], min: usize) -> usize {
 }
 
 fn trim_blank<'a, 'b>(lines: &'b [&'a str]) -> &'b [&'a str] {
-    let start = lines.iter().position(|l| !is_blank(l)).unwrap_or(lines.len());
-    let end = lines.iter().rposition(|l| !is_blank(l)).map_or(start, |e| e + 1);
+    let start = lines
+        .iter()
+        .position(|l| !is_blank(l))
+        .unwrap_or(lines.len());
+    let end = lines
+        .iter()
+        .rposition(|l| !is_blank(l))
+        .map_or(start, |e| e + 1);
     &lines[start..end]
 }
 
@@ -399,13 +423,31 @@ mod tests {
         );
         assert!(matches!(&doc.blocks[0], Block::Heading { level: 1, .. }));
         assert!(matches!(&doc.blocks[1], Block::Heading { level: 2, id, .. } if id == "section"));
-        let Block::Paragraph(p) = &doc.blocks[2] else { panic!("{:?}", doc.blocks[2]) };
-        assert!(p.iter().any(|i| matches!(i, Inline::Link { url, .. } if url == "https://x.dev")));
-        assert!(p.iter().any(|i| matches!(i, Inline::Code(c) if c == "code")));
-        let Block::List { items, .. } = &doc.blocks[3] else { panic!("{:?}", doc.blocks[3]) };
+        let Block::Paragraph(p) = &doc.blocks[2] else {
+            panic!("{:?}", doc.blocks[2])
+        };
+        assert!(
+            p.iter()
+                .any(|i| matches!(i, Inline::Link { url, .. } if url == "https://x.dev"))
+        );
+        assert!(
+            p.iter()
+                .any(|i| matches!(i, Inline::Code(c) if c == "code"))
+        );
+        let Block::List { items, .. } = &doc.blocks[3] else {
+            panic!("{:?}", doc.blocks[3])
+        };
         assert_eq!(items.len(), 2);
-        assert!(matches!(&doc.blocks[4], Block::BlockQuote { kind: Some(Admonition::Note), .. }));
-        assert!(matches!(&doc.blocks[5], Block::CodeBlock { lang: Some(l), code } if l == "python" && code == "print(1)\n"));
+        assert!(matches!(
+            &doc.blocks[4],
+            Block::BlockQuote {
+                kind: Some(Admonition::Note),
+                ..
+            }
+        ));
+        assert!(
+            matches!(&doc.blocks[5], Block::CodeBlock { lang: Some(l), code } if l == "python" && code == "print(1)\n")
+        );
         assert!(matches!(&doc.blocks[6], Block::Paragraph(_)));
         assert!(matches!(&doc.blocks[7], Block::CodeBlock { code, .. } if code == "raw text\n"));
     }

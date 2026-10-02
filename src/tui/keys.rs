@@ -14,7 +14,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     }
     match app.mode {
         Mode::Help | Mode::Info => {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | '?' | 'i') | KeyCode::Enter) {
+            if matches!(
+                key.code,
+                KeyCode::Esc | KeyCode::Char('q' | '?' | 'i') | KeyCode::Enter
+            ) {
                 app.mode = Mode::Normal;
             }
         }
@@ -206,7 +209,11 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('z') => app.toggle_full_width(),
         KeyCode::Char('M') => {
             app.mouse = !app.mouse;
-            let state = if app.mouse { "on" } else { "off (text selection enabled)" };
+            let state = if app.mouse {
+                "on"
+            } else {
+                "off (text selection enabled)"
+            };
             app.notify(format!("Mouse {state}"));
         }
         KeyCode::Char('r') => match app.reload() {
@@ -221,7 +228,9 @@ pub fn handle_mouse(app: &mut App, m: MouseEvent) {
     let pos = Position::new(m.column, m.row);
     let in_toc = app.panel_rect.is_some_and(|r| r.contains(pos));
     match m.kind {
-        MouseEventKind::ScrollDown if in_toc && app.panel == Some(Panel::Files) => app.files_move(3),
+        MouseEventKind::ScrollDown if in_toc && app.panel == Some(Panel::Files) => {
+            app.files_move(3)
+        }
         MouseEventKind::ScrollUp if in_toc && app.panel == Some(Panel::Files) => app.files_move(-3),
         MouseEventKind::ScrollDown if in_toc => app.toc_move(3),
         MouseEventKind::ScrollUp if in_toc => app.toc_move(-3),
@@ -254,7 +263,10 @@ fn link_at(app: &App, r: Rect, pos: Position) -> Option<usize> {
     if !r.contains(pos) {
         return None;
     }
-    let line = app.rendered.lines.get(app.scroll + (pos.y - r.y) as usize)?;
+    let line = app
+        .rendered
+        .lines
+        .get(app.scroll + (pos.y - r.y) as usize)?;
     let col = (pos.x - r.x) as usize;
     let mut x = 0;
     for s in &line.spans {

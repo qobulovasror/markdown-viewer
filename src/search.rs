@@ -70,6 +70,13 @@ mod tests {
     fn invalid_regex_falls_back_to_literal() {
         let lines = [line("a (b c")];
         let m = find_all(&lines, &compile("(b").unwrap());
-        assert_eq!(m, [Match { line: 0, start: 2, end: 4 }]);
+        assert_eq!(
+            m,
+            [Match {
+                line: 0,
+                start: 2,
+                end: 4
+            }]
+        );
     }
 }

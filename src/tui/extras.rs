@@ -177,7 +177,11 @@ impl App {
                 }
                 !in_fence
                     && t.starts_with('#')
-                    && t.trim_start_matches('#').trim().trim_end_matches('#').trim() == title
+                    && t.trim_start_matches('#')
+                        .trim()
+                        .trim_end_matches('#')
+                        .trim()
+                        == title
             })
             .nth(nth)
             .map_or(1, |(i, _)| i + 1)
@@ -202,7 +206,10 @@ impl App {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("");
-        if matches!(name, "vi" | "vim" | "nvim" | "nano" | "hx" | "emacs" | "micro" | "kak") {
+        if matches!(
+            name,
+            "vi" | "vim" | "nvim" | "nano" | "hx" | "emacs" | "micro" | "kak"
+        ) {
             cmd.arg(format!("+{}", self.source_line()));
         }
         match cmd.arg(&path).status() {

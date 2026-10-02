@@ -105,7 +105,10 @@ mod tests {
     #[test]
     fn resolves_targets() {
         let base = Path::new("docs/README.md");
-        assert_eq!(resolve("#usage", Some(base)), Target::Anchor("usage".into()));
+        assert_eq!(
+            resolve("#usage", Some(base)),
+            Target::Anchor("usage".into())
+        );
         assert_eq!(
             resolve("guide/intro.md#setup", Some(base)),
             Target::Document("docs/guide/intro.md".into(), Some("setup".into()))

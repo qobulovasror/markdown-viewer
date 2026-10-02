@@ -44,7 +44,11 @@ struct Builder<'a> {
 
 impl<'a> Builder<'a> {
     fn next(&mut self) -> Option<Event<'a>> {
-        let ev = self.events.get(self.pos).cloned();
+        // Events are consumed once, so take them instead of cloning.
+        let ev = self
+            .events
+            .get_mut(self.pos)
+            .map(|e| std::mem::replace(e, Event::Rule));
         self.pos += 1;
         ev
     }
@@ -343,10 +347,9 @@ fn flush(pending: &mut Vec<Inline>, out: &mut Vec<Block>) {
         return;
     }
     let inlines = std::mem::take(pending);
-    if inlines
-        .iter()
-        .all(|i| matches!(i, Inline::Text(t) if t.trim().is_empty()) || matches!(i, Inline::SoftBreak))
-    {
+    if inlines.iter().all(|i| {
+        matches!(i, Inline::Text(t) if t.trim().is_empty()) || matches!(i, Inline::SoftBreak)
+    }) {
         return;
     }
     out.push(Block::Plain(inlines));
@@ -464,7 +467,12 @@ mod tests {
     #[test]
     fn table_and_code() {
         let doc = parse("| a | b |\n|:--|--:|\n| 1 | 2 |\n\n```rust\nfn main() {}\n```\n");
-        let Block::Table { aligns, header, rows } = &doc.blocks[0] else {
+        let Block::Table {
+            aligns,
+            header,
+            rows,
+        } = &doc.blocks[0]
+        else {
             panic!("expected table");
         };
         assert_eq!(aligns, &[Align::Left, Align::Right]);

@@ -42,12 +42,7 @@ impl Layouter<'_> {
         let mut natural = vec![1usize; ncols];
         for row in std::iter::once(&head).chain(body.iter()) {
             for (c, segs) in row.iter().enumerate() {
-                let w = wrap(segs.clone(), usize::MAX / 2)
-                    .iter()
-                    .map(|l| wrap::width(l))
-                    .max()
-                    .unwrap_or(0);
-                natural[c] = natural[c].max(w);
+                natural[c] = natural[c].max(wrap::natural_width(segs));
             }
         }
         let widths = fit_columns(&natural, width.saturating_sub(3 * ncols + 1));

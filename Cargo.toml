@@ -2,6 +2,13 @@
 name = "mdv"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.88"
+description = "Fast terminal viewer for Markdown, Org, AsciiDoc and reStructuredText"
+license = "MIT"
+readme = "README.md"
+keywords = ["markdown", "viewer", "terminal", "tui", "pager"]
+categories = ["command-line-utilities", "text-processing"]
+exclude = ["tests/snapshots", ".github"]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -25,3 +32,16 @@ toml = "1.1.6"
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
+
+[dev-dependencies]
+criterion = "0.8.2"
+insta = "1.48.0"
+
+[[bench]]
+name = "render"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

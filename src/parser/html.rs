@@ -7,10 +7,11 @@ pub fn to_inlines(html: &str) -> Vec<Inline> {
     let mut out = Vec::new();
     let mut link: Option<(String, Vec<Inline>)> = None;
     let mut rest = html;
-    let push = |i: Inline, link: &mut Option<(String, Vec<Inline>)>, out: &mut Vec<Inline>| match link {
-        Some((_, content)) => content.push(i),
-        None => out.push(i),
-    };
+    let push =
+        |i: Inline, link: &mut Option<(String, Vec<Inline>)>, out: &mut Vec<Inline>| match link {
+            Some((_, content)) => content.push(i),
+            None => out.push(i),
+        };
     while !rest.is_empty() {
         let Some(start) = rest.find('<') else {
             push_text(rest, &mut link, &mut out);
@@ -111,7 +112,10 @@ fn attr(tag: &str, name: &str) -> Option<String> {
         let rest = rest[1..].trim_start();
         let value = match rest.chars().next() {
             Some(q @ ('"' | '\'')) => rest[1..].split(q).next().unwrap_or(""),
-            _ => rest.split(|c: char| c.is_whitespace() || c == '>').next().unwrap_or(""),
+            _ => rest
+                .split(|c: char| c.is_whitespace() || c == '>')
+                .next()
+                .unwrap_or(""),
         };
         return Some(decode_entities(value));
     }

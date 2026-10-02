@@ -1,27 +1,12 @@
-mod clipboard;
-mod color;
-mod config;
-mod files;
-mod highlight;
-mod links;
-mod math;
-mod layout;
-mod parser;
-mod render;
-mod search;
-mod state;
-mod theme;
-mod tui;
-mod watch;
-
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, ValueEnum};
 
-use color::ColorDepth;
-use theme::Theme;
+use mdv::color::ColorDepth;
+use mdv::theme::{self, Theme};
+use mdv::{config, files, parser, tui};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ColorChoice {
@@ -109,7 +94,10 @@ fn run() -> Result<()> {
     let tty = stdout.is_terminal();
     let theme = match cli.theme.as_ref().or(cfg.theme.as_ref()) {
         Some(name) => Theme::by_name(name).with_context(|| {
-            format!("unknown theme '{name}' (available: {})", theme::THEME_NAMES.join(", "))
+            format!(
+                "unknown theme '{name}' (available: {})",
+                theme::THEME_NAMES.join(", ")
+            )
         })?,
         None if tty && std::io::stdin().is_terminal() => theme::auto(),
         None => Theme::default_dark(),
@@ -137,7 +125,6 @@ fn run() -> Result<()> {
         return tui::run(app, cfg.images && std::io::stdin().is_terminal());
     }
 
-    let doc = parser::parse(&src, format);
     let width = cli.width.unwrap_or_else(|| {
         if tty {
             crossterm::terminal::size().map_or(80, |(w, _)| w as usize)
@@ -154,20 +141,12 @@ fn run() -> Result<()> {
         ColorChoice::Auto if !tty => ColorDepth::None,
         ColorChoice::Auto => ColorDepth::detect(),
     };
-
-    let rendered = layout::layout(
-        &doc,
-        &theme,
-        &layout::Options {
+    let text = mdv::render_to_string(
+        &src,
+        format,
+        &mdv::PrintOptions {
             width,
-            code_numbers: false,
-            front_matter: true,
-            image_rows: Default::default(),
-        },
-    );
-    let text = render::ansi::render(
-        &rendered,
-        &render::ansi::AnsiOptions {
+            theme: &theme,
             depth,
             hyperlinks: cfg.hyperlinks && !cli.no_hyperlinks,
         },
@@ -183,9 +162,7 @@ fn run() -> Result<()> {
 
 fn read_input(path: Option<&PathBuf>) -> Result<String> {
     let bytes = match path {
-        Some(p) => {
-            std::fs::read(p).with_context(|| format!("cannot read {}", p.display()))?
-        }
+        Some(p) => std::fs::read(p).with_context(|| format!("cannot read {}", p.display()))?,
         _ => {
             if std::io::stdin().is_terminal() {
                 bail!("no input file given (try `mdv README.md` or `mdv --help`)");

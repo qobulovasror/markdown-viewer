@@ -59,14 +59,23 @@ impl Images {
     }
 
     /// Rows needed by each standalone local image at the given text width.
-    pub fn plan(&mut self, doc: &Document, base: Option<&Path>, width: u16) -> HashMap<String, u16> {
+    pub fn plan(
+        &mut self,
+        doc: &Document,
+        base: Option<&Path>,
+        width: u16,
+    ) -> HashMap<String, u16> {
         let mut urls = Vec::new();
         collect(&doc.blocks, &mut urls);
         let font = self.picker.font_size();
         let mut out = HashMap::new();
         for url in urls {
-            let Some(path) = resolve(&url, base) else { continue };
-            let Some(img) = self.load(&path) else { continue };
+            let Some(path) = resolve(&url, base) else {
+                continue;
+            };
+            let Some(img) = self.load(&path) else {
+                continue;
+            };
             let size = Resize::Fit(None).size_for(&img.image, font, Size::new(width, MAX_ROWS));
             if size.height > 0 {
                 out.insert(url, size.height);
@@ -92,7 +101,10 @@ fn likely_supported() -> bool {
         || ["kitty", "ghostty", "foot", "wezterm", "mlterm"]
             .iter()
             .any(|t| term.contains(t))
-        || matches!(var("TERM_PROGRAM").as_str(), "iTerm.app" | "WezTerm" | "ghostty")
+        || matches!(
+            var("TERM_PROGRAM").as_str(),
+            "iTerm.app" | "WezTerm" | "ghostty"
+        )
 }
 
 /// Local file path for an image URL; remote images are not fetched.
@@ -115,7 +127,9 @@ fn collect(blocks: &[Block], out: &mut Vec<String>) {
                     out.push(url.to_string());
                 }
             }
-            Block::BlockQuote { blocks, .. } | Block::FootnoteDef { blocks, .. } => collect(blocks, out),
+            Block::BlockQuote { blocks, .. } | Block::FootnoteDef { blocks, .. } => {
+                collect(blocks, out)
+            }
             Block::List { items, .. } => items.iter().for_each(|i| collect(&i.blocks, out)),
             _ => {}
         }
@@ -134,8 +148,10 @@ mod tests {
         image::RgbImage::new(80, 64).save(&png).unwrap();
         let doc_path = dir.join("doc.md");
 
+        #[allow(deprecated)]
+        let picker = Picker::from_fontsize((8, 16).into());
         let mut images = Images {
-            picker: Picker::from_fontsize((8, 16).into()),
+            picker,
             cache: HashMap::new(),
         };
         let doc = crate::parser::parse(

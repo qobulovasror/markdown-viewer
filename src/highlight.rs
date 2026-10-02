@@ -12,7 +12,7 @@ use syntect::parsing::{SyntaxReference, SyntaxSet};
 use crate::layout::Span;
 use crate::theme::Theme;
 
-type Lines = Arc<Vec<Vec<Span>>>;
+pub type Lines = Arc<Vec<Vec<Span>>>;
 
 fn syntaxes() -> &'static SyntaxSet {
     static SET: OnceLock<SyntaxSet> = OnceLock::new();
@@ -30,7 +30,11 @@ fn cache() -> &'static Mutex<HashMap<u64, Lines>> {
     CACHE.get_or_init(Default::default)
 }
 
-fn find_syntax<'a>(set: &'a SyntaxSet, lang: Option<&str>, code: &str) -> Option<&'a SyntaxReference> {
+fn find_syntax<'a>(
+    set: &'a SyntaxSet,
+    lang: Option<&str>,
+    code: &str,
+) -> Option<&'a SyntaxReference> {
     if let Some(lang) = lang {
         let lang = lang.to_ascii_lowercase();
         let token = match lang.as_str() {
@@ -55,11 +59,13 @@ fn find_syntax<'a>(set: &'a SyntaxSet, lang: Option<&str>, code: &str) -> Option
 }
 
 /// Returns one span list per source line.
-pub fn highlight(code: &str, lang: Option<&str>, theme: &Theme) -> Vec<Vec<Span>> {
+pub fn highlight(code: &str, lang: Option<&str>, theme: &Theme) -> Lines {
     let plain = || {
-        code.lines()
-            .map(|l| vec![Span::new(l, theme.code_text)])
-            .collect()
+        Arc::new(
+            code.lines()
+                .map(|l| vec![Span::new(l, theme.code_text)])
+                .collect(),
+        )
     };
     let set = syntaxes();
     let Some(syntax) = find_syntax(set, lang, code) else {
@@ -73,7 +79,7 @@ pub fn highlight(code: &str, lang: Option<&str>, theme: &Theme) -> Vec<Vec<Span>
     (code, lang, theme.syntax).hash(&mut h);
     let key = h.finish();
     if let Some(hit) = cache().lock().ok().and_then(|c| c.get(&key).cloned()) {
-        return hit.to_vec();
+        return hit;
     }
 
     let mut hl = HighlightLines::new(syntax, st);
@@ -91,8 +97,9 @@ pub fn highlight(code: &str, lang: Option<&str>, theme: &Theme) -> Vec<Vec<Span>
             .collect();
         out.push(spans);
     }
+    let out = Arc::new(out);
     if let Ok(mut c) = cache().lock() {
-        c.insert(key, Arc::new(out.clone()));
+        c.insert(key, out.clone());
     }
     out
 }
@@ -128,14 +135,18 @@ mod tests {
     fn detects_shebang() {
         let set = syntaxes();
         let s = find_syntax(set, None, "#!/bin/bash\necho hi").unwrap();
-        assert!(s.name.contains("Bash") || s.name.contains("Shell"), "{}", s.name);
+        assert!(
+            s.name.contains("Bash") || s.name.contains("Shell"),
+            "{}",
+            s.name
+        );
     }
 
     #[test]
     fn unknown_language_is_plain() {
         let t = Theme::default_dark();
         let lines = highlight("abc", Some("nosuchlang"), &t);
-        assert_eq!(lines, vec![vec![Span::new("abc", t.code_text)]]);
+        assert_eq!(*lines, vec![vec![Span::new("abc", t.code_text)]]);
     }
 
     #[test]

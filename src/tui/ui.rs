@@ -66,11 +66,18 @@ fn text_area(app: &App, area: Rect) -> Rect {
 /// Side panel frame; returns the inner area.
 fn panel_block(f: &mut Frame, app: &mut App, area: Rect, title: &str) -> Rect {
     let t = &app.theme;
-    let border = if app.focus == Focus::Panel { t.ui_accent } else { t.dim };
+    let border = if app.focus == Focus::Panel {
+        t.ui_accent
+    } else {
+        t.dim
+    };
     let block = Block::new()
         .borders(Borders::RIGHT)
         .border_style(app.depth.adapt(border))
-        .title(TSpan::styled(title.to_string(), app.depth.adapt(t.ui_accent)));
+        .title(TSpan::styled(
+            title.to_string(),
+            app.depth.adapt(t.ui_accent),
+        ));
     let inner = block.inner(area);
     f.render_widget(block, area);
     app.panel_rect = Some(inner);
@@ -98,14 +105,21 @@ fn draw_files(f: &mut Frame, app: &mut App, area: Rect) {
                 .filter(|d| !d.is_empty())
                 .map(|d| format!("{d}/"))
                 .unwrap_or_default();
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = p
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let full = truncate(&format!("{marker}{dir}{name}"), width);
             let mut split = (marker.len() + dir.len()).min(full.len());
             while !full.is_char_boundary(split) {
                 split -= 1;
             }
             let (head, tail) = full.split_at(split);
-            let mut name_style = if Some(i) == current { t.ui_accent } else { t.text };
+            let mut name_style = if Some(i) == current {
+                t.ui_accent
+            } else {
+                t.text
+            };
             let mut dir_style = t.dim;
             if i == app.files_selected && focused {
                 name_style = name_style.add_modifier(Modifier::REVERSED);
@@ -124,7 +138,11 @@ fn draw_finder(f: &mut Frame, app: &App, area: Rect) {
     let t = &app.theme;
     let w = (area.width * 3 / 5).clamp(30.min(area.width), area.width);
     let max_rows = (area.height * 3 / 5).max(3) as usize;
-    let rows = app.finder.results.len().clamp(1, max_rows.saturating_sub(3).max(1));
+    let rows = app
+        .finder
+        .results
+        .len()
+        .clamp(1, max_rows.saturating_sub(3).max(1));
     let h = (rows as u16 + 4).min(area.height);
     let rect = Rect::new(
         area.x + (area.width - w) / 2,
@@ -146,7 +164,14 @@ fn draw_finder(f: &mut Frame, app: &App, area: Rect) {
     ];
     let offset = app.finder.selected.saturating_sub(rows.saturating_sub(1));
     let inner_w = w.saturating_sub(4) as usize;
-    for (k, &i) in app.finder.results.iter().enumerate().skip(offset).take(rows) {
+    for (k, &i) in app
+        .finder
+        .results
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(rows)
+    {
         let text = truncate(&format!(" {}", app.files[i].display()), inner_w);
         let mut style = app.depth.adapt(t.text);
         if k == app.finder.selected {
@@ -155,7 +180,10 @@ fn draw_finder(f: &mut Frame, app: &App, area: Rect) {
         lines.push(TLine::from(TSpan::styled(text, style)));
     }
     if app.finder.results.is_empty() {
-        lines.push(TLine::from(TSpan::styled(" no matches", app.depth.adapt(t.dim))));
+        lines.push(TLine::from(TSpan::styled(
+            " no matches",
+            app.depth.adapt(t.dim),
+        )));
     }
     f.render_widget(Clear, rect);
     let block = Block::new()
@@ -176,7 +204,13 @@ fn draw_toc(f: &mut Frame, app: &mut App, area: Rect) {
     let offset = app.toc_offset(height);
     let highlight = app.toc_highlight();
     let current = app.current_heading();
-    let min_level = app.rendered.headings.iter().map(|h| h.level).min().unwrap_or(1);
+    let min_level = app
+        .rendered
+        .headings
+        .iter()
+        .map(|h| h.level)
+        .min()
+        .unwrap_or(1);
     let width = inner.width as usize;
 
     let lines: Vec<TLine> = app
@@ -263,9 +297,13 @@ fn draw_images(f: &mut Frame, app: &mut App, text: Rect, end: usize) {
         })
         .collect();
     let base = app.source.path.clone();
-    let Some(images) = app.images.as_mut() else { return };
+    let Some(images) = app.images.as_mut() else {
+        return;
+    };
     for (n, url, rows) in slots {
-        let Some(proto) = images.protocol(&url, base.as_deref()) else { continue };
+        let Some(proto) = images.protocol(&url, base.as_deref()) else {
+            continue;
+        };
         let area = Rect::new(text.x, text.y + (n - app.scroll) as u16, text.width, rows);
         f.render_widget(Clear, area);
         f.render_stateful_widget(ratatui_image::StatefulImage::default(), area, proto);
@@ -334,7 +372,10 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             TSpan::styled(" /", accent),
             TSpan::styled(app.search.input.as_str(), bar),
             TSpan::styled("▏", accent),
-            TSpan::styled(format!("  {}", match_count(app)), app.depth.adapt(t.dim.patch(t.ui_bar))),
+            TSpan::styled(
+                format!("  {}", match_count(app)),
+                app.depth.adapt(t.dim.patch(t.ui_bar)),
+            ),
         ]);
         f.render_widget(Paragraph::new(line).style(bar), area);
         return;
@@ -347,7 +388,10 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     if let Some(msg) = app.message() {
         left.push(TSpan::styled(format!("│ {msg} "), bar));
     } else if let Some(id) = app.focused_link_id() {
-        left.push(TSpan::styled(format!("│ → {} ", app.rendered.links[id]), bar));
+        left.push(TSpan::styled(
+            format!("│ → {} ", app.rendered.links[id]),
+            bar,
+        ));
     } else if let Some(h) = app.current_heading() {
         left.push(TSpan::styled(
             format!("│ {} ", app.rendered.headings[h].title),
@@ -421,7 +465,10 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     let mut rows: Vec<(String, String)> = vec![
         ("File".into(), path),
         ("Format".into(), format!("{:?}", app.source.format)),
-        ("Words".into(), format!("{} (~{} min)", app.words, app.reading_minutes())),
+        (
+            "Words".into(),
+            format!("{} (~{} min)", app.words, app.reading_minutes()),
+        ),
         ("Headings".into(), r.headings.len().to_string()),
         ("Links".into(), r.links.len().to_string()),
         ("Code blocks".into(), r.code_blocks.len().to_string()),

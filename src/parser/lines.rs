@@ -15,10 +15,7 @@ pub fn is_blank(line: &str) -> bool {
 
 /// Removes up to `n` leading spaces from each line.
 pub fn dedent<'a>(lines: &[&'a str], n: usize) -> Vec<&'a str> {
-    lines
-        .iter()
-        .map(|l| &l[indent(l).min(n)..])
-        .collect()
+    lines.iter().map(|l| &l[indent(l).min(n)..]).collect()
 }
 
 /// Unique GitHub-style heading ids.
@@ -73,7 +70,10 @@ pub fn collect_list(
             body.pop();
             trailing += 1;
         }
-        if trailing > 0 && i < lines.len() && marker(lines[i]).is_some_and(|n| n.indent == first.indent) {
+        if trailing > 0
+            && i < lines.len()
+            && marker(lines[i]).is_some_and(|n| n.indent == first.indent)
+        {
             loose = true;
         }
         let rest = dedent(&body[1..], m.content);
@@ -108,7 +108,12 @@ pub fn collect_list(
 /// Strips a leading `[ ]` / `[x]` checkbox from the first line.
 fn task_marker(mut text: Vec<&str>) -> (Option<bool>, Vec<&str>) {
     let first = text[0];
-    for (prefix, done) in [("[ ] ", false), ("[x] ", true), ("[X] ", true), ("[-] ", false)] {
+    for (prefix, done) in [
+        ("[ ] ", false),
+        ("[x] ", true),
+        ("[X] ", true),
+        ("[-] ", false),
+    ] {
         if let Some(rest) = first.strip_prefix(prefix) {
             text[0] = rest;
             return (Some(done), text);

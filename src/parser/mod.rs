@@ -1,5 +1,5 @@
-pub mod ast;
 mod asciidoc;
+pub mod ast;
 #[cfg(test)]
 mod fuzz_tests;
 mod html;
@@ -114,9 +114,11 @@ fn postprocess_inlines(inl: &mut Vec<Inline>) {
     for mut i in items {
         match &mut i {
             Inline::Text(t) => *t = emoji(t),
-            Inline::Emph(c) | Inline::Strong(c) | Inline::Strike(c) | Inline::Sup(c) | Inline::Sub(c) => {
-                postprocess_inlines(c)
-            }
+            Inline::Emph(c)
+            | Inline::Strong(c)
+            | Inline::Strike(c)
+            | Inline::Sup(c)
+            | Inline::Sub(c) => postprocess_inlines(c),
             Inline::Link { content, .. } => postprocess_inlines(content),
             _ => {}
         }
@@ -129,7 +131,9 @@ fn postprocess_inlines(inl: &mut Vec<Inline>) {
                 .take_while(|c| c.is_ascii_alphanumeric())
                 .collect::<String>()
                 .to_ascii_lowercase();
-            const WRAPPERS: &[&str] = &["a", "sup", "sub", "b", "strong", "i", "em", "kbd", "code", "del", "s", "u", "mark"];
+            const WRAPPERS: &[&str] = &[
+                "a", "sup", "sub", "b", "strong", "i", "em", "kbd", "code", "del", "s", "u", "mark",
+            ];
             if WRAPPERS.contains(&name.as_str()) {
                 if !closing {
                     let href = (name == "a").then(|| {
@@ -149,7 +153,10 @@ fn postprocess_inlines(inl: &mut Vec<Inline>) {
                     let (name, href, children) = stack.pop().expect("non-empty");
                     let wrapped = match name.as_str() {
                         "a" => match href {
-                            Some(url) if !url.is_empty() => Inline::Link { url, content: children },
+                            Some(url) if !url.is_empty() => Inline::Link {
+                                url,
+                                content: children,
+                            },
                             _ => Inline::Emph(children),
                         },
                         "sup" => Inline::Sup(children),
@@ -223,7 +230,10 @@ mod tests {
     #[test]
     fn emoji_shortcodes() {
         assert_eq!(emoji("ship it :rocket: now"), "ship it 🚀 now");
-        assert_eq!(emoji("time 10:30:00 and :nope:"), "time 10:30:00 and :nope:");
+        assert_eq!(
+            emoji("time 10:30:00 and :nope:"),
+            "time 10:30:00 and :nope:"
+        );
     }
 
     #[test]
@@ -232,15 +242,23 @@ mod tests {
             "Press <kbd>Ctrl</kbd> or visit <a href=\"https://x.dev\">site</a>, x<sup>2</sup>.",
             Format::Markdown,
         );
-        let Block::Paragraph(p) = &doc.blocks[0] else { panic!() };
+        let Block::Paragraph(p) = &doc.blocks[0] else {
+            panic!()
+        };
         assert!(p.contains(&Inline::Code("Ctrl".into())));
-        assert!(p.iter().any(|i| matches!(i, Inline::Link { url, .. } if url == "https://x.dev")));
+        assert!(
+            p.iter()
+                .any(|i| matches!(i, Inline::Link { url, .. } if url == "https://x.dev"))
+        );
         assert!(p.iter().any(|i| matches!(i, Inline::Sup(_))));
     }
 
     #[test]
     fn html_block_image() {
-        let doc = parse("<p align=\"center\"><img src=\"a.png\" alt=\"Logo\"></p>\n", Format::Markdown);
+        let doc = parse(
+            "<p align=\"center\"><img src=\"a.png\" alt=\"Logo\"></p>\n",
+            Format::Markdown,
+        );
         assert_eq!(
             doc.blocks,
             [Block::Paragraph(vec![Inline::Image {

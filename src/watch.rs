@@ -26,7 +26,11 @@ impl FileWatcher {
             if !matches!(ev.kind, EventKind::Modify(_) | EventKind::Create(_)) {
                 return;
             }
-            if ev.paths.iter().any(|p| p.file_name().map(|n| n.to_os_string()) == name) {
+            if ev
+                .paths
+                .iter()
+                .any(|p| p.file_name().map(|n| n.to_os_string()) == name)
+            {
                 let _ = tx.send(());
             }
         })

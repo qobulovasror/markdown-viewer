@@ -104,7 +104,9 @@ pub fn plain_text(inlines: &[Inline]) -> String {
 fn collect_text(inlines: &[Inline], out: &mut String) {
     for i in inlines {
         match i {
-            Inline::Text(t) | Inline::Code(t) | Inline::Math(t) | Inline::DisplayMath(t) => out.push_str(t),
+            Inline::Text(t) | Inline::Code(t) | Inline::Math(t) | Inline::DisplayMath(t) => {
+                out.push_str(t)
+            }
             Inline::Emph(c)
             | Inline::Strong(c)
             | Inline::Strike(c)

@@ -30,7 +30,13 @@ impl App {
                 .path
                 .as_deref()
                 .and_then(Path::parent)
-                .map(|p| if p.as_os_str().is_empty() { Path::new(".") } else { p })
+                .map(|p| {
+                    if p.as_os_str().is_empty() {
+                        Path::new(".")
+                    } else {
+                        p
+                    }
+                })
                 .unwrap_or(Path::new("."))
                 .to_path_buf();
             let files = files::scan(&dir);

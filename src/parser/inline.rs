@@ -145,7 +145,10 @@ mod tests {
 
     #[test]
     fn no_intraword_or_unclosed() {
-        assert_eq!(parse("2*3*4 and *x", &SYN), vec![Inline::Text("2*3*4 and *x".into())]);
+        assert_eq!(
+            parse("2*3*4 and *x", &SYN),
+            vec![Inline::Text("2*3*4 and *x".into())]
+        );
     }
 
     #[test]

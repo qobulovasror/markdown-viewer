@@ -1,0 +1,35 @@
+---
+source: tests/snapshots.rs
+expression: "render(\"sample.org\", 60, ColorDepth::None)"
+---
+╭─ front matter ───────────────────────────────────────────╮
+│ title: Org sample                                        │
+│ author: mdv                                              │
+╰──────────────────────────────────────────────────────────╯
+
+Overview
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Org text with bold, italic, verbatim, code and strike. Link:
+Org mode.
+
+Tasks
+────────────────────────────────────────────────────────────
+
+☑ Parse headings
+☐ Render agenda
+  1. nested ordered
+  2. second
+
+╭─ python ─────────────────────────────────────────────────╮
+│ def hello():                                             │
+│     print("hi")                                          │
+╰──────────────────────────────────────────────────────────╯
+
+│ A quote block.
+
+╭──────┬───────╮
+│ Name │ Value │
+├──────┼───────┤
+│ a    │ 1     │
+╰──────┴───────╯
