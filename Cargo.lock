@@ -814,6 +814,7 @@ dependencies = [
  "crossterm",
  "pulldown-cmark",
  "ratatui",
+ "regex",
  "syntect",
  "unicode-segmentation",
  "unicode-width",

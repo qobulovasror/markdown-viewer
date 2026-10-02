@@ -7,7 +7,9 @@ use anyhow::{Context, Result};
 
 use crate::color::ColorDepth;
 use crate::layout::{self, Rendered};
+use crate::links::{self, Target};
 use crate::parser::{self, Document};
+use crate::search::{self, Match};
 use crate::theme::Theme;
 
 /// Where the document text came from.
@@ -42,6 +44,36 @@ impl Source {
 pub enum Mode {
     Normal,
     Help,
+    /// Typing a search query.
+    Search,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    Content,
+    Toc,
+}
+
+#[derive(Debug, Default)]
+pub struct SearchState {
+    pub input: String,
+    pub query: String,
+    pub matches: Vec<Match>,
+    pub current: Option<usize>,
+    /// Scroll position before an interactive search started.
+    origin: usize,
+}
+
+/// A link occurrence: link id plus the first line it appears on.
+#[derive(Debug, Clone, Copy)]
+pub struct LinkRef {
+    pub id: usize,
+    pub line: usize,
+}
+
+struct HistoryEntry {
+    source: Source,
+    scroll: usize,
 }
 
 pub struct App {
@@ -58,6 +90,16 @@ pub struct App {
     /// Maximum text width (focus mode); 0 means full width.
     pub max_width: usize,
     pub words: usize,
+    pub show_toc: bool,
+    pub focus: Focus,
+    pub toc_selected: usize,
+    pub search: SearchState,
+    pub link_refs: Vec<LinkRef>,
+    pub link_focus: Option<usize>,
+    history: Vec<HistoryEntry>,
+    /// Screen areas from the last draw, for mouse hit-testing.
+    pub text_rect: ratatui::layout::Rect,
+    pub toc_rect: Option<ratatui::layout::Rect>,
     message: Option<(String, Instant)>,
     pub quit: bool,
 }
@@ -79,6 +121,15 @@ impl App {
             mouse: true,
             max_width,
             words,
+            show_toc: false,
+            focus: Focus::Content,
+            toc_selected: 0,
+            search: SearchState::default(),
+            link_refs: Vec::new(),
+            link_focus: None,
+            history: Vec::new(),
+            text_rect: Default::default(),
+            toc_rect: None,
             message: None,
             quit: false,
         }
@@ -104,6 +155,9 @@ impl App {
                 code_numbers: true,
             },
         );
+        self.link_refs = collect_link_refs(&self.rendered);
+        self.link_focus = None;
+        self.refresh_search();
     }
 
     /// Current position as (heading index, lines below it) or a fraction.
@@ -134,12 +188,270 @@ impl App {
             return Ok(());
         };
         self.source = Source::from_file(&path)?;
-        self.doc = parser::markdown::parse(&self.source.text);
-        self.words = count_words(&self.source.text);
+        self.reparse();
         let anchor = self.position_anchor();
         self.relayout(self.layout_width.max(20));
         self.restore_anchor(anchor);
         Ok(())
+    }
+
+    fn reparse(&mut self) {
+        self.doc = parser::markdown::parse(&self.source.text);
+        self.words = count_words(&self.source.text);
+    }
+
+    /// Replaces the current document, remembering it in the history.
+    fn open_source(&mut self, source: Source) {
+        let prev = std::mem::replace(&mut self.source, source);
+        self.history.push(HistoryEntry {
+            source: prev,
+            scroll: self.scroll,
+        });
+        self.reparse();
+        self.relayout(self.layout_width.max(20));
+        self.scroll = 0;
+        self.toc_selected = 0;
+    }
+
+    pub fn back(&mut self) {
+        let Some(entry) = self.history.pop() else {
+            self.notify("No previous document");
+            return;
+        };
+        let same = entry.source.path == self.source.path && entry.source.text == self.source.text;
+        if !same {
+            self.source = entry.source;
+            self.reparse();
+            self.relayout(self.layout_width.max(20));
+        }
+        self.scroll_to(entry.scroll);
+    }
+
+    /// Jumps to an anchor in the current document, recording the old position.
+    pub fn jump_to_anchor(&mut self, id: &str) -> bool {
+        self.jump_to_anchor_inner(id, true)
+    }
+
+    fn jump_to_anchor_inner(&mut self, id: &str, record: bool) -> bool {
+        let target = self
+            .rendered
+            .anchor_line(id)
+            .or_else(|| self.rendered.anchor_line(&parser::markdown::slugify(id)));
+        match target {
+            Some(line) => {
+                if record {
+                    self.history.push(HistoryEntry {
+                        source: self.source.clone(),
+                        scroll: self.scroll,
+                    });
+                }
+                self.scroll_to(line);
+                true
+            }
+            None => {
+                self.notify(format!("Anchor #{id} not found"));
+                false
+            }
+        }
+    }
+
+    pub fn follow_link(&mut self, id: usize) {
+        let Some(url) = self.rendered.links.get(id).cloned() else {
+            return;
+        };
+        match links::resolve(&url, self.source.path.as_deref()) {
+            Target::Anchor(a) => {
+                self.jump_to_anchor(&a);
+            }
+            Target::Document(path, anchor) => match Source::from_file(&path) {
+                Ok(src) => {
+                    self.open_source(src);
+                    if let Some(a) = anchor {
+                        self.jump_to_anchor_inner(&a, false);
+                    }
+                    self.notify(format!("Opened {} (Backspace to go back)", path.display()));
+                }
+                Err(e) => self.notify(format!("{e:#}")),
+            },
+            Target::External(t) => match links::open_external(&t) {
+                Ok(()) => self.notify(format!("Opening {t}")),
+                Err(e) => self.notify(format!("Cannot open {t}: {e}")),
+            },
+        }
+    }
+
+    /// Moves link focus forward/backward, starting from the viewport.
+    pub fn cycle_link(&mut self, forward: bool) {
+        if self.link_refs.is_empty() {
+            self.notify("No links");
+            return;
+        }
+        let n = self.link_refs.len();
+        let visible = |r: &LinkRef| r.line >= self.scroll && r.line < self.scroll + self.view_height;
+        let next = match self.link_focus {
+            Some(i) if visible(&self.link_refs[i]) => {
+                if forward {
+                    (i + 1) % n
+                } else {
+                    (i + n - 1) % n
+                }
+            }
+            _ => {
+                let first = self.link_refs.iter().position(|r| r.line >= self.scroll);
+                match (forward, first) {
+                    (true, Some(i)) => i,
+                    (true, None) => 0,
+                    (false, Some(i)) => {
+                        let last = self.link_refs.iter().rposition(visible);
+                        last.unwrap_or((i + n - 1) % n)
+                    }
+                    (false, None) => n - 1,
+                }
+            }
+        };
+        self.link_focus = Some(next);
+        self.ensure_visible(self.link_refs[next].line);
+    }
+
+    pub fn focused_link_id(&self) -> Option<usize> {
+        self.link_focus.map(|i| self.link_refs[i].id)
+    }
+
+    pub fn ensure_visible(&mut self, line: usize) {
+        if line < self.scroll || line >= self.scroll + self.view_height {
+            self.scroll_to(line.saturating_sub(self.view_height / 3));
+        }
+    }
+
+    /// Jumps to the next/previous heading relative to the viewport top.
+    pub fn jump_heading(&mut self, forward: bool) {
+        let hs = &self.rendered.headings;
+        let target = if forward {
+            hs.iter().find(|h| h.line > self.scroll)
+        } else {
+            hs.iter().rev().find(|h| h.line < self.scroll)
+        };
+        if let Some(h) = target {
+            let line = h.line;
+            self.scroll_to(line);
+        }
+    }
+
+    pub fn start_search(&mut self) {
+        self.mode = Mode::Search;
+        self.search.input.clear();
+        self.search.origin = self.scroll;
+    }
+
+    /// Live update while typing.
+    pub fn update_search_input(&mut self) {
+        let input = self.search.input.clone();
+        self.set_query(&input);
+        if self.search.current.is_none() {
+            self.scroll_to(self.search.origin);
+        }
+    }
+
+    pub fn finish_search(&mut self, accept: bool) {
+        self.mode = Mode::Normal;
+        if !accept {
+            self.set_query("");
+            self.scroll_to(self.search.origin);
+        } else if self.search.matches.is_empty() && !self.search.query.is_empty() {
+            self.notify(format!("Pattern not found: {}", self.search.query));
+        }
+    }
+
+    pub fn clear_search(&mut self) {
+        self.set_query("");
+    }
+
+    fn set_query(&mut self, query: &str) {
+        self.search.query = query.to_string();
+        self.refresh_search();
+        // Pick the first match at or after the search origin.
+        let from = self.search.origin;
+        self.search.current = self
+            .search
+            .matches
+            .iter()
+            .position(|m| m.line >= from)
+            .or((!self.search.matches.is_empty()).then_some(0));
+        if let Some(i) = self.search.current {
+            self.ensure_visible(self.search.matches[i].line);
+        }
+    }
+
+    fn refresh_search(&mut self) {
+        self.search.matches = match search::compile(&self.search.query) {
+            Some(re) => search::find_all(&self.rendered.lines, &re),
+            None => Vec::new(),
+        };
+        let n = self.search.matches.len();
+        self.search.current = self.search.current.filter(|&c| c < n);
+    }
+
+    pub fn next_match(&mut self, forward: bool) {
+        let n = self.search.matches.len();
+        if n == 0 {
+            if !self.search.query.is_empty() {
+                self.notify(format!("Pattern not found: {}", self.search.query));
+            }
+            return;
+        }
+        let cur = self.search.current.unwrap_or(0);
+        let next = if forward { (cur + 1) % n } else { (cur + n - 1) % n };
+        if (forward && next < cur) || (!forward && next > cur) {
+            self.notify("Search wrapped");
+        }
+        self.search.current = Some(next);
+        self.ensure_visible(self.search.matches[next].line);
+    }
+
+    pub fn toggle_toc(&mut self) {
+        if self.rendered.headings.is_empty() {
+            self.notify("No headings");
+            return;
+        }
+        self.show_toc = !self.show_toc;
+        if self.show_toc {
+            self.focus = Focus::Toc;
+            self.toc_selected = self.current_heading().unwrap_or(0);
+        } else {
+            self.focus = Focus::Content;
+        }
+    }
+
+    /// TOC entry to highlight: selection when focused, else current section.
+    pub fn toc_highlight(&self) -> usize {
+        if self.focus == Focus::Toc {
+            self.toc_selected
+        } else {
+            self.current_heading().unwrap_or(0)
+        }
+    }
+
+    /// First visible TOC row for a panel of `height` rows.
+    pub fn toc_offset(&self, height: usize) -> usize {
+        let n = self.rendered.headings.len();
+        self.toc_highlight()
+            .saturating_sub(height / 2)
+            .min(n.saturating_sub(height))
+    }
+
+    pub fn toc_move(&mut self, delta: isize) {
+        let n = self.rendered.headings.len();
+        if n > 0 {
+            self.toc_selected = self.toc_selected.saturating_add_signed(delta).min(n - 1);
+        }
+    }
+
+    pub fn toc_jump(&mut self, idx: usize) {
+        if let Some(h) = self.rendered.headings.get(idx) {
+            let id = h.id.clone();
+            self.toc_selected = idx;
+            self.jump_to_anchor(&id);
+        }
     }
 
     pub fn max_scroll(&self) -> usize {
@@ -200,6 +512,21 @@ impl App {
             self.message = None;
         }
     }
+}
+
+fn collect_link_refs(r: &Rendered) -> Vec<LinkRef> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for (n, line) in r.lines.iter().enumerate() {
+        for s in &line.spans {
+            if let Some(id) = s.link
+                && seen.insert(id)
+            {
+                out.push(LinkRef { id, line: n });
+            }
+        }
+    }
+    out
 }
 
 fn count_words(text: &str) -> usize {

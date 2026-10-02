@@ -64,6 +64,8 @@ $$
 ![Screenshot](shot.png)
 
 ### Third level
+
+See [other doc](other.md) and [table section](#table).
 #### Fourth level
 
 [^1]: The footnote text.

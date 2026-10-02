@@ -1,8 +1,10 @@
 mod color;
 mod highlight;
+mod links;
 mod layout;
 mod parser;
 mod render;
+mod search;
 mod theme;
 mod tui;
 
@@ -61,13 +63,12 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     let src = read_input(cli.path.as_ref())?;
 
+    let stdout = std::io::stdout();
+    let tty = stdout.is_terminal();
     let theme = match &cli.theme {
         Some(name) => Theme::by_name(name).context("unknown theme")?,
         None => Theme::default_dark(),
     };
-
-    let stdout = std::io::stdout();
-    let tty = stdout.is_terminal();
     if tty && !cli.print {
         let depth = match cli.color {
             ColorChoice::Never => ColorDepth::None,
