@@ -4,6 +4,7 @@ mod layout;
 mod parser;
 mod render;
 mod theme;
+mod tui;
 
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
@@ -67,6 +68,16 @@ fn run() -> Result<()> {
 
     let stdout = std::io::stdout();
     let tty = stdout.is_terminal();
+    if tty && !cli.print {
+        let depth = match cli.color {
+            ColorChoice::Never => ColorDepth::None,
+            _ => ColorDepth::detect(),
+        };
+        let path = cli.path.filter(|p| p.as_os_str() != "-");
+        let source = tui::Source { path, text: src };
+        return tui::run(tui::App::new(source, theme, depth, cli.width.unwrap_or(100)));
+    }
+
     let doc = parser::markdown::parse(&src);
     let width = cli.width.unwrap_or_else(|| {
         if tty {
