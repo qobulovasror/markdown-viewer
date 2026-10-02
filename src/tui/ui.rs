@@ -262,6 +262,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("Tab / Shift-Tab", "Next / previous link"),
     ("Enter", "Open focused link"),
     ("Backspace, Ctrl-o", "Go back"),
+    ("T", "Cycle color theme"),
     ("r", "Reload file"),
     ("M", "Toggle mouse capture (text selection)"),
     ("Esc", "Clear search / link focus, then quit"),

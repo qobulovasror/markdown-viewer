@@ -62,10 +62,6 @@ impl Line {
     pub fn text(&self) -> String {
         self.spans.iter().map(|s| s.text.as_str()).collect()
     }
-
-    pub fn width(&self) -> usize {
-        wrap::width(&self.spans)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

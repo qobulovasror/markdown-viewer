@@ -5,7 +5,6 @@ use ratatui::style::{Color, Modifier, Style};
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub name: &'static str,
-    pub dark: bool,
     pub text: Style,
     pub emph: Style,
     pub strong: Style,
@@ -50,7 +49,6 @@ fn fg(hex: u32) -> Style {
 /// Palette from which a full theme is derived.
 struct Palette {
     name: &'static str,
-    dark: bool,
     fg: u32,
     muted: u32,
     surface: u32,
@@ -76,7 +74,6 @@ impl Palette {
         };
         Theme {
             name: self.name,
-            dark: self.dark,
             text,
             emph: Style::new().add_modifier(Modifier::ITALIC),
             strong: Style::new().add_modifier(b),
@@ -127,7 +124,6 @@ impl Theme {
         let p = match name {
             "dark" => Palette {
                 name: "dark",
-                dark: true,
                 fg: 0xd4d4d4,
                 muted: 0x7a7f8a,
                 surface: 0x2a2d35,
@@ -143,7 +139,6 @@ impl Theme {
             },
             "light" => Palette {
                 name: "light",
-                dark: false,
                 fg: 0x24292f,
                 muted: 0x6e7781,
                 surface: 0xeaeef2,
@@ -159,7 +154,6 @@ impl Theme {
             },
             "dracula" => Palette {
                 name: "dracula",
-                dark: true,
                 fg: 0xf8f8f2,
                 muted: 0x6272a4,
                 surface: 0x343746,
@@ -175,7 +169,6 @@ impl Theme {
             },
             "nord" => Palette {
                 name: "nord",
-                dark: true,
                 fg: 0xd8dee9,
                 muted: 0x616e88,
                 surface: 0x3b4252,
@@ -191,7 +184,6 @@ impl Theme {
             },
             "gruvbox" => Palette {
                 name: "gruvbox",
-                dark: true,
                 fg: 0xebdbb2,
                 muted: 0x928374,
                 surface: 0x3c3836,
@@ -213,4 +205,10 @@ impl Theme {
     pub fn default_dark() -> Theme {
         Theme::by_name("dark").expect("built-in theme")
     }
+}
+
+/// Picks `light` or `dark` from the terminal background (OSC 11 / COLORFGBG).
+pub fn auto() -> Theme {
+    let light = terminal_light::luma().is_ok_and(|l| l > 0.6);
+    Theme::by_name(if light { "light" } else { "dark" }).expect("built-in theme")
 }

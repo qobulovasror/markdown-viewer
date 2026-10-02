@@ -454,6 +454,18 @@ impl App {
         }
     }
 
+    /// Switches to the next built-in theme.
+    pub fn cycle_theme(&mut self) {
+        let names = crate::theme::THEME_NAMES;
+        let i = names.iter().position(|n| *n == self.theme.name).unwrap_or(0);
+        let name = names[(i + 1) % names.len()];
+        self.theme = Theme::by_name(name).expect("built-in theme");
+        let anchor = self.position_anchor();
+        self.relayout(self.layout_width.max(20));
+        self.restore_anchor(anchor);
+        self.notify(format!("Theme: {name}"));
+    }
+
     pub fn max_scroll(&self) -> usize {
         self.rendered.lines.len().saturating_sub(self.view_height)
     }

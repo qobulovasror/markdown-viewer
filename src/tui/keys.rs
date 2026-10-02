@@ -115,6 +115,7 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('t') => app.toggle_toc(),
         KeyCode::Char('h') | KeyCode::Left if app.show_toc => app.focus = Focus::Toc,
         KeyCode::Char('?') => app.mode = Mode::Help,
+        KeyCode::Char('T') => app.cycle_theme(),
         KeyCode::Char('M') => {
             app.mouse = !app.mouse;
             let state = if app.mouse { "on" } else { "off (text selection enabled)" };

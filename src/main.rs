@@ -67,6 +67,7 @@ fn run() -> Result<()> {
     let tty = stdout.is_terminal();
     let theme = match &cli.theme {
         Some(name) => Theme::by_name(name).context("unknown theme")?,
+        None if tty && std::io::stdin().is_terminal() => theme::auto(),
         None => Theme::default_dark(),
     };
     if tty && !cli.print {
