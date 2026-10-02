@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/qobulovasror/mdviewer-rc/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qobulovasror/mdviewer-rc/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/qobulovasror/markdown-viewer/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qobulovasror/markdown-viewer/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <img alt="MSRV 1.88" src="https://img.shields.io/badge/rustc-1.88+-orange.svg">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg">
@@ -67,12 +67,12 @@ mdv -p x.md | less -R
 ## Install
 
 ```sh
-cargo install --git https://github.com/qobulovasror/mdviewer-rc   # latest source
+cargo install --git https://github.com/qobulovasror/markdown-viewer   # latest source
 cargo install --path .                                           # from a local clone
 ```
 
 Prebuilt binaries for macOS, Linux and Windows are attached to
-[GitHub releases](https://github.com/qobulovasror/mdviewer-rc/releases). A Homebrew formula template
+[GitHub releases](https://github.com/qobulovasror/markdown-viewer/releases). A Homebrew formula template
 lives in [`packaging/mdv.rb`](packaging/mdv.rb).
 
 ## Usage
