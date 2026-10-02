@@ -1,6 +1,7 @@
 //! Interactive full-screen viewer.
 
 mod app;
+mod extras;
 mod keys;
 mod ui;
 
@@ -35,6 +36,20 @@ pub fn run(mut app: App) -> Result<()> {
                     Event::Resize(..) => {}
                     _ => {}
                 }
+                if app.open_editor {
+                    app.open_editor = false;
+                    let _ = execute!(std::io::stdout(), DisableMouseCapture);
+                    ratatui::restore();
+                    app.run_editor();
+                    // Re-enter without ratatui::init so panic hooks are not stacked again.
+                    crossterm::terminal::enable_raw_mode()?;
+                    execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen)?;
+                    terminal.clear()?;
+                    if app.mouse {
+                        execute!(std::io::stdout(), EnableMouseCapture)?;
+                    }
+                    continue;
+                }
                 if app.mouse != mouse_before {
                     if app.mouse {
                         execute!(std::io::stdout(), EnableMouseCapture)?;
@@ -45,6 +60,7 @@ pub fn run(mut app: App) -> Result<()> {
             }
             app.tick();
         }
+        app.save_state();
         Ok(())
     })();
 

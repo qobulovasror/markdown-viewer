@@ -6,10 +6,13 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 
 use crate::color::ColorDepth;
+use crate::config::Config;
 use crate::layout::{self, Rendered};
 use crate::links::{self, Target};
 use crate::parser::{self, Document};
 use crate::search::{self, Match};
+use crate::state::{Position, State};
+use crate::watch::FileWatcher;
 use crate::theme::Theme;
 
 /// Where the document text came from.
@@ -71,9 +74,17 @@ pub struct LinkRef {
     pub line: usize,
 }
 
-struct HistoryEntry {
-    source: Source,
-    scroll: usize,
+/// Key prefix waiting for its argument.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pending {
+    Mark,
+    Jump,
+    Yank,
+}
+
+pub(super) struct HistoryEntry {
+    pub(super) source: Source,
+    pub(super) scroll: usize,
 }
 
 pub struct App {
@@ -82,7 +93,7 @@ pub struct App {
     pub source: Source,
     pub doc: Document,
     pub rendered: Rendered,
-    layout_width: usize,
+    pub(super) layout_width: usize,
     pub scroll: usize,
     pub view_height: usize,
     pub mode: Mode,
@@ -96,19 +107,39 @@ pub struct App {
     pub search: SearchState,
     pub link_refs: Vec<LinkRef>,
     pub link_focus: Option<usize>,
-    history: Vec<HistoryEntry>,
+    pub(super) history: Vec<HistoryEntry>,
     /// Screen areas from the last draw, for mouse hit-testing.
     pub text_rect: ratatui::layout::Rect,
     pub toc_rect: Option<ratatui::layout::Rect>,
+    pub pending: Option<Pending>,
+    /// Width restored when leaving full-width mode.
+    pub focus_width: usize,
+    pub(super) state: State,
+    pub(super) remember: bool,
+    /// Position to restore after the first layout.
+    pending_restore: Option<Position>,
+    pub(super) watcher: Option<FileWatcher>,
+    /// Set by the `e` key; the event loop suspends the UI and runs the editor.
+    pub open_editor: bool,
     message: Option<(String, Instant)>,
     pub quit: bool,
 }
 
 impl App {
-    pub fn new(source: Source, theme: Theme, depth: ColorDepth, max_width: usize) -> App {
+    pub fn new(source: Source, theme: Theme, depth: ColorDepth, cfg: &Config) -> App {
         let doc = parser::markdown::parse(&source.text);
         let words = count_words(&source.text);
-        App {
+        let state = if cfg.remember_position {
+            State::load()
+        } else {
+            State::default()
+        };
+        let pending_restore = source
+            .path
+            .as_deref()
+            .and_then(|p| state.get(p))
+            .map(|f| f.position.clone());
+        let mut app = App {
             theme,
             depth,
             source,
@@ -118,10 +149,10 @@ impl App {
             scroll: 0,
             view_height: 1,
             mode: Mode::Normal,
-            mouse: true,
-            max_width,
+            mouse: cfg.mouse,
+            max_width: cfg.max_width,
             words,
-            show_toc: false,
+            show_toc: cfg.toc,
             focus: Focus::Content,
             toc_selected: 0,
             search: SearchState::default(),
@@ -130,9 +161,20 @@ impl App {
             history: Vec::new(),
             text_rect: Default::default(),
             toc_rect: None,
+            pending: None,
+            focus_width: if cfg.max_width > 0 { cfg.max_width } else { 100 },
+            state,
+            remember: cfg.remember_position,
+            pending_restore,
+            watcher: None,
+            open_editor: false,
             message: None,
             quit: false,
+        };
+        if cfg.watch {
+            app.toggle_watch();
         }
+        app
     }
 
     /// Re-lays out the document if the width changed, keeping the reading position.
@@ -142,10 +184,13 @@ impl App {
         }
         let anchor = self.position_anchor();
         self.relayout(width);
-        self.restore_anchor(anchor);
+        match self.pending_restore.take() {
+            Some(pos) => self.scroll_to(self.line_of(&pos)),
+            None => self.restore_anchor(anchor),
+        }
     }
 
-    fn relayout(&mut self, width: usize) {
+    pub(super) fn relayout(&mut self, width: usize) {
         self.layout_width = width;
         self.rendered = layout::layout(
             &self.doc,
@@ -161,7 +206,7 @@ impl App {
     }
 
     /// Current position as (heading index, lines below it) or a fraction.
-    fn position_anchor(&self) -> (Option<usize>, usize, f64) {
+    pub(super) fn position_anchor(&self) -> (Option<usize>, usize, f64) {
         let total = self.rendered.lines.len().max(1);
         let frac = self.scroll as f64 / total as f64;
         match self.current_heading() {
@@ -173,7 +218,7 @@ impl App {
         }
     }
 
-    fn restore_anchor(&mut self, (heading, offset, frac): (Option<usize>, usize, f64)) {
+    pub(super) fn restore_anchor(&mut self, (heading, offset, frac): (Option<usize>, usize, f64)) {
         self.scroll = match heading.and_then(|h| self.rendered.headings.get(h)) {
             Some(h) => h.line + offset,
             None if self.scroll == 0 => 0,
@@ -202,6 +247,7 @@ impl App {
 
     /// Replaces the current document, remembering it in the history.
     fn open_source(&mut self, source: Source) {
+        self.save_state();
         let prev = std::mem::replace(&mut self.source, source);
         self.history.push(HistoryEntry {
             source: prev,
@@ -211,6 +257,7 @@ impl App {
         self.relayout(self.layout_width.max(20));
         self.scroll = 0;
         self.toc_selected = 0;
+        self.rewatch();
     }
 
     pub fn back(&mut self) {
@@ -220,9 +267,11 @@ impl App {
         };
         let same = entry.source.path == self.source.path && entry.source.text == self.source.text;
         if !same {
+            self.save_state();
             self.source = entry.source;
             self.reparse();
             self.relayout(self.layout_width.max(20));
+            self.rewatch();
         }
         self.scroll_to(entry.scroll);
     }
@@ -516,6 +565,12 @@ impl App {
 
     /// Periodic housekeeping between events.
     pub fn tick(&mut self) {
+        if self.watcher.as_ref().is_some_and(FileWatcher::changed) {
+            match self.reload() {
+                Ok(()) => self.notify("File changed, reloaded"),
+                Err(e) => self.notify(format!("Reload failed: {e:#}")),
+            }
+        }
         if self
             .message
             .as_ref()

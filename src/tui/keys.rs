@@ -6,7 +6,7 @@ use crossterm::event::{
 use ratatui::layout::{Position, Rect};
 use unicode_width::UnicodeWidthStr;
 
-use super::app::{App, Focus, Mode};
+use super::app::{App, Focus, Mode, Pending};
 
 pub fn handle_key(app: &mut App, key: KeyEvent) {
     if key.kind == KeyEventKind::Release {
@@ -71,7 +71,27 @@ fn toc(app: &mut App, key: KeyEvent) -> bool {
     true
 }
 
+fn pending(app: &mut App, p: Pending, key: KeyEvent) {
+    let KeyCode::Char(c) = key.code else {
+        app.notify("Cancelled");
+        return;
+    };
+    match p {
+        Pending::Mark if c.is_ascii_alphanumeric() => app.set_mark(c),
+        Pending::Jump if c.is_ascii_alphanumeric() => app.jump_mark(c),
+        Pending::Yank if c == 'y' => app.copy_code(None),
+        Pending::Yank if c.is_ascii_digit() && c != '0' => {
+            app.copy_code(c.to_digit(10).map(|d| d as usize))
+        }
+        _ => app.notify("Cancelled"),
+    }
+}
+
 fn normal(app: &mut App, key: KeyEvent) {
+    if let Some(p) = app.pending.take() {
+        pending(app, p, key);
+        return;
+    }
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let page = app.view_height.max(1) as isize;
     let half = (page / 2).max(1);
@@ -116,6 +136,21 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('h') | KeyCode::Left if app.show_toc => app.focus = Focus::Toc,
         KeyCode::Char('?') => app.mode = Mode::Help,
         KeyCode::Char('T') => app.cycle_theme(),
+        KeyCode::Char('m') => {
+            app.pending = Some(Pending::Mark);
+            app.notify("Set bookmark: press a letter");
+        }
+        KeyCode::Char('\'') => {
+            app.pending = Some(Pending::Jump);
+            app.notify("Jump to bookmark: press a letter");
+        }
+        KeyCode::Char('y') => {
+            app.pending = Some(Pending::Yank);
+            app.notify("Copy code: 1-9 block number, y = block on screen");
+        }
+        KeyCode::Char('e') => app.open_editor = true,
+        KeyCode::Char('w') => app.toggle_watch(),
+        KeyCode::Char('z') => app.toggle_full_width(),
         KeyCode::Char('M') => {
             app.mouse = !app.mouse;
             let state = if app.mouse { "on" } else { "off (text selection enabled)" };

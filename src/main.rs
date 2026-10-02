@@ -1,12 +1,16 @@
+mod clipboard;
 mod color;
+mod config;
 mod highlight;
 mod links;
 mod layout;
 mod parser;
 mod render;
 mod search;
+mod state;
 mod theme;
 mod tui;
+mod watch;
 
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
@@ -35,8 +39,8 @@ struct Cli {
     #[arg(short, long)]
     print: bool,
 
-    /// Rendering width in columns (default: terminal width).
-    #[arg(short, long)]
+    /// Text width in columns (print: default terminal width; viewer: max width).
+    #[arg(long)]
     width: Option<usize>,
 
     /// Color theme.
@@ -50,6 +54,18 @@ struct Cli {
     /// Disable OSC 8 clickable links.
     #[arg(long)]
     no_hyperlinks: bool,
+
+    /// Reload automatically when the file changes.
+    #[arg(short, long)]
+    watch: bool,
+
+    /// Open the table of contents on start.
+    #[arg(long)]
+    toc: bool,
+
+    /// Ignore the config file.
+    #[arg(long)]
+    no_config: bool,
 }
 
 fn main() {
@@ -61,12 +77,19 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    let mut cfg = if cli.no_config {
+        config::Config::default()
+    } else {
+        config::Config::load()?
+    };
     let src = read_input(cli.path.as_ref())?;
 
     let stdout = std::io::stdout();
     let tty = stdout.is_terminal();
-    let theme = match &cli.theme {
-        Some(name) => Theme::by_name(name).context("unknown theme")?,
+    let theme = match cli.theme.as_ref().or(cfg.theme.as_ref()) {
+        Some(name) => Theme::by_name(name).with_context(|| {
+            format!("unknown theme '{name}' (available: {})", theme::THEME_NAMES.join(", "))
+        })?,
         None if tty && std::io::stdin().is_terminal() => theme::auto(),
         None => Theme::default_dark(),
     };
@@ -77,7 +100,12 @@ fn run() -> Result<()> {
         };
         let path = cli.path.filter(|p| p.as_os_str() != "-");
         let source = tui::Source { path, text: src };
-        return tui::run(tui::App::new(source, theme, depth, cli.width.unwrap_or(100)));
+        if let Some(w) = cli.width {
+            cfg.max_width = w;
+        }
+        cfg.watch |= cli.watch;
+        cfg.toc |= cli.toc;
+        return tui::run(tui::App::new(source, theme, depth, &cfg));
     }
 
     let doc = parser::markdown::parse(&src);
@@ -110,7 +138,7 @@ fn run() -> Result<()> {
         &rendered,
         &render::ansi::AnsiOptions {
             depth,
-            hyperlinks: !cli.no_hyperlinks,
+            hyperlinks: cfg.hyperlinks && !cli.no_hyperlinks,
         },
     );
     let mut lock = stdout.lock();

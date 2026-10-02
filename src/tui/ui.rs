@@ -228,6 +228,9 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let mut right = String::new();
+    if app.watcher.is_some() {
+        right.push_str(" ● watch │");
+    }
     if !app.search.query.is_empty() {
         right.push_str(&format!(" /{} {} │", app.search.query, match_count(app)));
     }
@@ -263,6 +266,11 @@ pub const HELP: &[(&str, &str)] = &[
     ("Enter", "Open focused link"),
     ("Backspace, Ctrl-o", "Go back"),
     ("T", "Cycle color theme"),
+    ("y 1-9 / y y", "Copy code block [n] / on screen"),
+    ("m <a-z>, ' <a-z>", "Set / jump to bookmark"),
+    ("e", "Edit file in $EDITOR"),
+    ("w", "Watch file for changes"),
+    ("z", "Toggle focus mode / full width"),
     ("r", "Reload file"),
     ("M", "Toggle mouse capture (text selection)"),
     ("Esc", "Clear search / link focus, then quit"),
