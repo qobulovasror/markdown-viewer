@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn plans_rows_for_standalone_local_images() {
-        let dir = std::env::temp_dir().join(format!("mdv-img-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("mdvw-img-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let png = dir.join("a.png");
         image::RgbImage::new(80, 64).save(&png).unwrap();

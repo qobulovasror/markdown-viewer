@@ -1,4 +1,4 @@
-//! Optional user configuration (`~/.config/mdv/config.toml`).
+//! Optional user configuration (`~/.config/mdvw/config.toml`).
 
 use std::path::PathBuf;
 
@@ -38,16 +38,16 @@ impl Default for Config {
     }
 }
 
-/// `$XDG_CONFIG_HOME/mdv` or `~/.config/mdv` (APPDATA on Windows).
+/// `$XDG_CONFIG_HOME/mdvw` or `~/.config/mdvw` (APPDATA on Windows).
 pub fn config_dir() -> Option<PathBuf> {
     if cfg!(windows) {
-        return dirs::config_dir().map(|d| d.join("mdv"));
+        return dirs::config_dir().map(|d| d.join("mdvw"));
     }
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
-        .map(|d| d.join("mdv"))
+        .map(|d| d.join("mdvw"))
 }
 
 impl Config {

@@ -287,10 +287,10 @@ mod tests {
     #[test]
     fn html_heading_and_summary() {
         let doc = parse(
-            "<h1 align=\"center\">mdv</h1>\n\n<details>\n<summary><b>Keys</b></summary>\n\ntext\n\n</details>\n",
+            "<h1 align=\"center\">mdvw</h1>\n\n<details>\n<summary><b>Keys</b></summary>\n\ntext\n\n</details>\n",
             Format::Markdown,
         );
-        assert!(matches!(&doc.blocks[0], Block::Heading { level: 1, id, .. } if id == "mdv"));
+        assert!(matches!(&doc.blocks[0], Block::Heading { level: 1, id, .. } if id == "mdvw"));
         let Block::Paragraph(p) = &doc.blocks[1] else {
             panic!("{:?}", doc.blocks)
         };

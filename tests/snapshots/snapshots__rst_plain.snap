@@ -3,7 +3,7 @@ source: tests/snapshots.rs
 expression: "render(\"sample.rst\", 60, ColorDepth::None)"
 ---
 ╭─ front matter ───────────────────────────────────────────╮
-│ author: mdv                                              │
+│ author: mdvw                                             │
 ╰──────────────────────────────────────────────────────────╯
 
 RST sample
@@ -39,11 +39,11 @@ Literal block:
 
 Grid table:
 
-╭──────┬─────────────────╮
-│ Name │ Description     │
-├──────┼─────────────────┤
-│ mdv  │ Terminal viewer │
-╰──────┴─────────────────╯
+╭──────┬───────────────────╮
+│ Name │ Description       │
+├──────┼───────────────────┤
+│ mdvw │ | Terminal viewer │
+╰──────┴───────────────────╯
 
 ╭─────┬────────╮
 │ Key │ Action │

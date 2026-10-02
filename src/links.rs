@@ -13,7 +13,7 @@ pub enum Target {
     External(String),
 }
 
-/// File extensions mdv renders itself.
+/// File extensions mdvw renders itself.
 pub const VIEWABLE: &[&str] = &[
     "md", "markdown", "mdown", "mkd", "mdx", "txt", "rst", "adoc", "asciidoc", "org",
 ];

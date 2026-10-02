@@ -1,4 +1,4 @@
-<h1 align="center">mdv</h1>
+<h1 align="center">mdvw</h1>
 
 <p align="center">
   A fast terminal viewer for <b>Markdown</b>, <b>Org</b>, <b>AsciiDoc</b>, <b>reStructuredText</b> and plain text.
@@ -7,28 +7,28 @@
 <p align="center">
   <a href="https://github.com/qobulovasror/markdown-viewer/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/qobulovasror/markdown-viewer/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <img alt="MSRV 1.88" src="https://img.shields.io/badge/rustc-1.88+-orange.svg">
+  <img alt="MSRV 1.90" src="https://img.shields.io/badge/rustc-1.90+-orange.svg">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey.svg">
 </p>
 
 <p align="center">
-  <img alt="mdv demo" src="assets/demo.gif" width="800">
+  <img alt="mdvw demo" src="assets/demo.gif" width="800">
 </p>
 
-`mdv` renders documents with colors, tables, syntax-highlighted code and clickable links. Read them in
+`mdvw` renders documents with colors, tables, syntax-highlighted code and clickable links. Read them in
 a full-screen viewer with a table of contents, search and live reload, or pipe the rendered text to
 stdout. It is a single binary, starts in milliseconds and needs no configuration.
 
 ```sh
-mdv README.md        # read
-mdv docs/            # browse a folder
-mdv -w notes.md      # live reload while you edit
-mdv -p x.md | less -R
+mdvw README.md        # read
+mdvw docs/            # browse a folder
+mdvw -w notes.md      # live reload while you edit
+mdvw -p x.md | less -R
 ```
 
-## Why mdv?
+## Why mdvw?
 
-| | mdv | glow | mdcat | bat |
+| | mdvw | glow | mdcat | bat |
 |---|:-:|:-:|:-:|:-:|
 | Rendered Markdown | ✅ | ✅ | ✅ | ❌ source only |
 | Interactive full-screen viewer | ✅ | ✅ | ❌ | ❌ |
@@ -69,37 +69,37 @@ mdv -p x.md | less -R
 ## Install
 
 ```sh
+cargo install mdvw                                                 # from crates.io
 cargo install --git https://github.com/qobulovasror/markdown-viewer   # latest source
-cargo install --path .                                           # from a local clone
 ```
 
 <details>
 <summary><b>Shell completions and man page</b></summary>
 
 ```sh
-mdv --completions bash > ~/.local/share/bash-completion/completions/mdv
-mdv --completions zsh  > ~/.zfunc/_mdv           # add ~/.zfunc to $fpath
-mdv --completions fish > ~/.config/fish/completions/mdv.fish
-mdv --man > ~/.local/share/man/man1/mdv.1
+mdvw --completions bash > ~/.local/share/bash-completion/completions/mdvw
+mdvw --completions zsh  > ~/.zfunc/_mdvw           # add ~/.zfunc to $fpath
+mdvw --completions fish > ~/.config/fish/completions/mdvw.fish
+mdvw --man > ~/.local/share/man/man1/mdvw.1
 ```
 
-Release archives already include `mdv.1` and a `completions/` folder.
+Release archives already include `mdvw.1` and a `completions/` folder.
 
 </details>
 
 Prebuilt binaries for macOS, Linux and Windows are attached to
 [GitHub releases](https://github.com/qobulovasror/markdown-viewer/releases). A Homebrew formula template
-lives in [`packaging/mdv.rb`](packaging/mdv.rb).
+lives in [`packaging/mdvw.rb`](packaging/mdvw.rb).
 
 ## Usage
 
 ```sh
-mdv README.md                       # open the viewer
-mdv docs/                           # directory mode: file panel + README/index
-mdv -p README.md                    # print rendered output
-mdv -w notes.md                     # reload when the file changes
-curl -s https://example.com/x.md | mdv
-mdv -p --width 80 --color always x.md | less -R
+mdvw README.md                       # open the viewer
+mdvw docs/                           # directory mode: file panel + README/index
+mdvw -p README.md                    # print rendered output
+mdvw -w notes.md                     # reload when the file changes
+curl -s https://example.com/x.md | mdvw
+mdvw -p --width 80 --color always x.md | less -R
 ```
 
 <details>
@@ -157,7 +157,7 @@ The mouse wheel scrolls. Clicking a link opens it, and clicking a panel entry ju
 <details>
 <summary><b>Configuration</b></summary>
 
-`~/.config/mdv/config.toml` (or `$XDG_CONFIG_HOME/mdv/config.toml`). Every key is optional:
+`~/.config/mdvw/config.toml` (or `$XDG_CONFIG_HOME/mdvw/config.toml`). Every key is optional:
 
 ```toml
 theme = "nord"          # unset: auto light/dark
@@ -170,7 +170,7 @@ remember_position = true
 images = true
 ```
 
-Reading positions and bookmarks are stored in `~/.local/state/mdv/state.json`.
+Reading positions and bookmarks are stored in `~/.local/state/mdvw/state.json`.
 
 </details>
 
@@ -178,7 +178,7 @@ Reading positions and bookmarks are stored in `~/.local/state/mdv/state.json`.
 <summary><b>Troubleshooting</b></summary>
 
 - **Colors look washed out.** Your terminal may not advertise truecolor. Try
-  `COLORTERM=truecolor mdv file.md`.
+  `COLORTERM=truecolor mdvw file.md`.
 - **No images.** Images need a graphics protocol (Kitty, iTerm2, WezTerm, Ghostty, foot). They are
   disabled inside tmux, and remote URLs are not downloaded.
 - **Can't select text with the mouse.** Press `M` to release mouse capture.
@@ -203,7 +203,7 @@ Measured with `cargo bench` on a ~1 MB Markdown document (Apple Silicon, release
 flowchart LR
     src["md / org / adoc / rst / txt"] --> parser["parser<br/>(format → AST)"]
     parser --> layout["layout<br/>(AST → styled lines)"]
-    layout --> ansi["render::ansi<br/>mdv -p"]
+    layout --> ansi["render::ansi<br/>mdvw -p"]
     layout --> tui["tui<br/>interactive viewer"]
 ```
 

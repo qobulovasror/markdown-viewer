@@ -40,7 +40,7 @@ fn state_path() -> Option<PathBuf> {
             .filter(|p| p.is_absolute())
             .or_else(|| dirs::home_dir().map(|h| h.join(".local/state")))
     };
-    dir.map(|d| d.join("mdv").join("state.json"))
+    dir.map(|d| d.join("mdvw").join("state.json"))
 }
 
 fn now() -> u64 {

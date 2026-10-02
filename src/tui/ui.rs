@@ -382,7 +382,7 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let mut left = vec![
-        TSpan::styled(" mdv ", accent.add_modifier(Modifier::REVERSED)),
+        TSpan::styled(" mdvw ", accent.add_modifier(Modifier::REVERSED)),
         TSpan::styled(format!(" {} ", app.source.name()), accent),
     ];
     if let Some(msg) = app.message() {

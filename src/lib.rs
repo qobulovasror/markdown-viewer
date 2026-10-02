@@ -1,4 +1,4 @@
-//! mdv: terminal viewer for Markdown and similar documents.
+//! mdvw: terminal viewer for Markdown and similar documents.
 //!
 //! Pipeline: `parser` (text → AST) → `layout` (AST → styled lines)
 //! → `render::ansi` (stdout) or `tui` (interactive viewer).

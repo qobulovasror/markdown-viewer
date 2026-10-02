@@ -1,9 +1,9 @@
 //! Rendering snapshots of the example documents (plain and ANSI).
 
-use mdv::color::ColorDepth;
-use mdv::parser::Format;
-use mdv::theme::Theme;
-use mdv::{PrintOptions, render_to_string};
+use mdvw::color::ColorDepth;
+use mdvw::parser::Format;
+use mdvw::theme::Theme;
+use mdvw::{PrintOptions, render_to_string};
 
 fn render(file: &str, width: usize, depth: ColorDepth) -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

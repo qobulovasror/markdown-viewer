@@ -1,5 +1,5 @@
 # Demo recording for the README. Generate with:  vhs assets/demo.tape
-# Requires: vhs (https://github.com/charmbracelet/vhs) and mdv on PATH (cargo install --path .)
+# Requires: vhs (https://github.com/charmbracelet/vhs) and mdvw on PATH (cargo install --path .)
 
 Output assets/demo.gif
 
@@ -12,11 +12,13 @@ Set Theme "Catppuccin Mocha"
 Set TypingSpeed 60ms
 
 Hide
-Type "cd examples && clear"
+# Warm up: the first launch of a new binary can be slow on macOS.
+Type "cd examples && mdvw --version > /dev/null && clear"
 Enter
+Sleep 2s
 Show
 
-Type "mdv sample.md"
+Type "mdvw sample.md"
 Sleep 300ms
 Enter
 Sleep 1.5s

@@ -1,5 +1,5 @@
 #+TITLE: Org sample
-#+AUTHOR: mdv
+#+AUTHOR: mdvw
 
 * Overview
 Org text with *bold*, /italic/, =verbatim=, ~code~ and +strike+.

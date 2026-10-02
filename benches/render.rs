@@ -1,9 +1,9 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
-use mdv::layout::{Options, layout};
-use mdv::parser::{Format, parse};
-use mdv::theme::Theme;
+use mdvw::layout::{Options, layout};
+use mdvw::parser::{Format, parse};
+use mdvw::theme::Theme;
 
 fn big_document() -> String {
     let sample = include_str!("../examples/sample.md");

@@ -7,9 +7,29 @@ on:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag matches Cargo.toml version
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+            exit 1
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+
   build:
+    needs: check
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
@@ -17,7 +37,7 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04-arm
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-15-intel
           - target: aarch64-apple-darwin
             os: macos-latest
           - target: x86_64-pc-windows-msvc
@@ -32,26 +52,59 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          name=mdv-${GITHUB_REF_NAME}-${{ matrix.target }}
-          bin=target/${{ matrix.target }}/release/mdv
+          name=mdvw-${GITHUB_REF_NAME}-${{ matrix.target }}
+          bin=target/${{ matrix.target }}/release/mdvw
           [[ "${{ matrix.target }}" == *windows* ]] && bin="$bin.exe"
           mkdir -p "$name/completions"
-          cp README.md LICENSE "$name"/
+          cp README.md LICENSE CHANGELOG.md "$bin" "$name"/
           # Builds are native, so the binary can generate its own docs.
-          "$bin" --man > "$name/mdv.1"
-          "$bin" --completions bash > "$name/completions/mdv.bash"
-          "$bin" --completions zsh > "$name/completions/_mdv"
-          "$bin" --completions fish > "$name/completions/mdv.fish"
-          "$bin" --completions powershell > "$name/completions/_mdv.ps1"
+          "$bin" --man > "$name/mdvw.1"
+          "$bin" --completions bash > "$name/completions/mdvw.bash"
+          "$bin" --completions zsh > "$name/completions/_mdvw"
+          "$bin" --completions fish > "$name/completions/mdvw.fish"
+          "$bin" --completions powershell > "$name/completions/_mdvw.ps1"
           if [[ "${{ matrix.target }}" == *windows* ]]; then
-            cp target/${{ matrix.target }}/release/mdv.exe "$name"/
-            7z a "$name.zip" "$name"
-            echo "ASSET=$name.zip" >> "$GITHUB_ENV"
+            7z a "$name.zip" "$name" > /dev/null
+            asset="$name.zip"
           else
-            cp target/${{ matrix.target }}/release/mdv "$name"/
             tar czf "$name.tar.gz" "$name"
-            echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
+            asset="$name.tar.gz"
           fi
+          if command -v sha256sum > /dev/null; then
+            sha256sum "$asset" > "$asset.sha256"
+          else
+            shasum -a 256 "$asset" > "$asset.sha256"
+          fi
+          echo "ASSET=$asset" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            ${{ env.ASSET }}
+            ${{ env.ASSET }}.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums and release notes
+        run: |
+          cat dist/*.sha256 | sed 's#  .*/#  #' > dist/SHA256SUMS
+          # Section of CHANGELOG.md for this version.
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            /^## / { found = ($0 ~ "\\[" v "\\]"); next }
+            found' CHANGELOG.md > notes.md
+          cat notes.md
       - uses: softprops/action-gh-release@v3
         with:
-          files: ${{ env.ASSET }}
+          body_path: notes.md
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS

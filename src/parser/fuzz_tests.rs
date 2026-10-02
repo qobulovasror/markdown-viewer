@@ -113,15 +113,15 @@ impl Rng {
 #[test]
 fn random_inputs_do_not_panic() {
     let theme = Theme::default_dark();
-    // MDV_FUZZ_ITERS / MDV_FUZZ_SEED allow longer local runs.
+    // MDVW_FUZZ_ITERS / MDVW_FUZZ_SEED allow longer local runs.
     let env = |k: &str, d: u64| {
         std::env::var(k)
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(d)
     };
-    let mut rng = Rng(env("MDV_FUZZ_SEED", 0x9E37_79B9_7F4A_7C15) | 1);
-    for _ in 0..env("MDV_FUZZ_ITERS", 3000) {
+    let mut rng = Rng(env("MDVW_FUZZ_SEED", 0x9E37_79B9_7F4A_7C15) | 1);
+    for _ in 0..env("MDVW_FUZZ_ITERS", 3000) {
         let len = rng.next() % 60;
         let src: String = (0..len)
             .map(|_| PIECES[rng.next() % PIECES.len()])

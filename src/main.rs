@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::{CommandFactory, Parser, ValueEnum};
 
-use mdv::color::ColorDepth;
-use mdv::theme::{self, Theme};
-use mdv::{config, files, parser, tui};
+use mdvw::color::ColorDepth;
+use mdvw::theme::{self, Theme};
+use mdvw::{config, files, parser, tui};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ColorChoice {
@@ -69,7 +69,7 @@ struct Cli {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("mdv: {e:#}");
+        eprintln!("mdvw: {e:#}");
         std::process::exit(1);
     }
 }
@@ -77,7 +77,7 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     if let Some(shell) = cli.completions {
-        clap_complete::generate(shell, &mut Cli::command(), "mdv", &mut std::io::stdout());
+        clap_complete::generate(shell, &mut Cli::command(), "mdvw", &mut std::io::stdout());
         return Ok(());
     }
     if cli.man {
@@ -156,10 +156,10 @@ fn run() -> Result<()> {
         ColorChoice::Auto if !tty => ColorDepth::None,
         ColorChoice::Auto => ColorDepth::detect(),
     };
-    let text = mdv::render_to_string(
+    let text = mdvw::render_to_string(
         &src,
         format,
-        &mdv::PrintOptions {
+        &mdvw::PrintOptions {
             width,
             theme: &theme,
             depth,
@@ -191,11 +191,11 @@ fn write_man(w: &mut dyn Write) -> Result<()> {
     writeln!(w, ".SH FILES")?;
     writeln!(
         w,
-        ".TP\n\\fI~/.config/mdv/config.toml\\fR\nOptional configuration (theme, max_width, mouse, watch, hyperlinks, toc, remember_position, images)."
+        ".TP\n\\fI~/.config/mdvw/config.toml\\fR\nOptional configuration (theme, max_width, mouse, watch, hyperlinks, toc, remember_position, images)."
     )?;
     writeln!(
         w,
-        ".TP\n\\fI~/.local/state/mdv/state.json\\fR\nSaved reading positions and bookmarks."
+        ".TP\n\\fI~/.local/state/mdvw/state.json\\fR\nSaved reading positions and bookmarks."
     )?;
     writeln!(w, ".SH ENVIRONMENT")?;
     writeln!(
@@ -211,7 +211,7 @@ fn read_input(path: Option<&PathBuf>) -> Result<String> {
         Some(p) => std::fs::read(p).with_context(|| format!("cannot read {}", p.display()))?,
         _ => {
             if std::io::stdin().is_terminal() {
-                bail!("no input file given (try `mdv README.md` or `mdv --help`)");
+                bail!("no input file given (try `mdvw README.md` or `mdvw --help`)");
             }
             let mut buf = Vec::new();
             std::io::stdin()

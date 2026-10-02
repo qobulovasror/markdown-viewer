@@ -1,9 +1,9 @@
 ---
 title: Sample document
-author: mdv
+author: mdvw
 ---
 
-# mdv — Markdown viewer
+# mdvw — Markdown viewer
 
 A **fast** terminal viewer with *italic*, ~~strike~~, `inline code` and a [link](https://example.com).
 Hard break here\

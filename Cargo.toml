@@ -1,14 +1,16 @@
 [package]
-name = "mdv"
+name = "mdvw"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.90"
 description = "Fast terminal viewer for Markdown, Org, AsciiDoc and reStructuredText"
 license = "MIT"
+repository = "https://github.com/qobulovasror/markdown-viewer"
+homepage = "https://github.com/qobulovasror/markdown-viewer"
 readme = "README.md"
 keywords = ["markdown", "viewer", "terminal", "tui", "pager"]
 categories = ["command-line-utilities", "text-processing"]
-exclude = ["tests/snapshots", ".github"]
+exclude = ["tests/snapshots", ".github", "assets", "packaging"]
 
 [dependencies]
 anyhow = "1.0.104"

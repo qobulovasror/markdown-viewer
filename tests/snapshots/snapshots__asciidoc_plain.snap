@@ -3,7 +3,7 @@ source: tests/snapshots.rs
 expression: "render(\"sample.adoc\", 60, ColorDepth::None)"
 ---
 ╭─ front matter ───────────────────────────────────────────╮
-│ author: mdv                                              │
+│ author: mdvw                                             │
 │ toc:                                                     │
 ╰──────────────────────────────────────────────────────────╯
 

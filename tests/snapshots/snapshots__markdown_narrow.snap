@@ -4,10 +4,10 @@ expression: "render(\"sample.md\", 32, ColorDepth::None)"
 ---
 ╭─ front matter ───────────────╮
 │ title: Sample document       │
-│ author: mdv                  │
+│ author: mdvw                 │
 ╰──────────────────────────────╯
 
-mdv — Markdown viewer
+mdvw — Markdown viewer
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 A fast terminal viewer with

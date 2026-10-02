@@ -2,7 +2,7 @@
 RST sample
 ==========
 
-:Author: mdv
+:Author: mdvw
 
 Overview
 ========
@@ -33,7 +33,7 @@ Grid table:
 +--------+---------------+
 | Name   | Description   |
 +========+===============+
-| mdv    | Terminal      |
+| mdvw    | Terminal      |
 |        | viewer        |
 +--------+---------------+
 
