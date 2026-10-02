@@ -6,7 +6,7 @@ use crossterm::event::{
 use ratatui::layout::{Position, Rect};
 use unicode_width::UnicodeWidthStr;
 
-use super::app::{App, Focus, Mode, Pending};
+use super::app::{App, Focus, Mode, Panel, Pending};
 
 pub fn handle_key(app: &mut App, key: KeyEvent) {
     if key.kind == KeyEventKind::Release {
@@ -19,8 +19,14 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
             }
         }
         Mode::Search => search_input(app, key),
-        Mode::Normal if app.focus == Focus::Toc && app.show_toc => {
+        Mode::Finder => finder(app, key),
+        Mode::Normal if app.focus == Focus::Panel && app.panel == Some(Panel::Toc) => {
             if !toc(app, key) {
+                normal(app, key);
+            }
+        }
+        Mode::Normal if app.focus == Focus::Panel && app.panel == Some(Panel::Files) => {
+            if !files(app, key) {
                 normal(app, key);
             }
         }
@@ -49,6 +55,49 @@ fn search_input(app: &mut App, key: KeyEvent) {
         }
         _ => {}
     }
+}
+
+fn finder(app: &mut App, key: KeyEvent) {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Normal,
+        KeyCode::Enter => app.finder_open(),
+        KeyCode::Down | KeyCode::Tab => app.finder_move(1),
+        KeyCode::Char('n' | 'j') if ctrl => app.finder_move(1),
+        KeyCode::Up | KeyCode::BackTab => app.finder_move(-1),
+        KeyCode::Char('p' | 'k') if ctrl => app.finder_move(-1),
+        KeyCode::Char('u') if ctrl => {
+            app.finder.input.clear();
+            app.finder_update();
+        }
+        KeyCode::Backspace => {
+            app.finder.input.pop();
+            app.finder_update();
+        }
+        KeyCode::Char(c) if !ctrl => {
+            app.finder.input.push(c);
+            app.finder_update();
+        }
+        _ => {}
+    }
+}
+
+/// File panel keys; returns false when the key should fall through.
+fn files(app: &mut App, key: KeyEvent) -> bool {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => app.files_move(1),
+        KeyCode::Char('k') | KeyCode::Up => app.files_move(-1),
+        KeyCode::Char('g') | KeyCode::Home => app.files_selected = 0,
+        KeyCode::Char('G') | KeyCode::End => app.files_move(isize::MAX),
+        KeyCode::Enter | KeyCode::Char('o' | 'l') | KeyCode::Right => {
+            app.open_file(app.files_selected);
+            app.focus = Focus::Content;
+        }
+        KeyCode::Char(' ') => app.open_file(app.files_selected),
+        KeyCode::Esc | KeyCode::Tab => app.focus = Focus::Content,
+        _ => return false,
+    }
+    true
 }
 
 /// TOC-specific keys; returns false when the key should fall through.
@@ -133,7 +182,10 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::BackTab => app.cycle_link(false),
         KeyCode::Backspace => app.back(),
         KeyCode::Char('t') => app.toggle_toc(),
-        KeyCode::Char('h') | KeyCode::Left if app.show_toc => app.focus = Focus::Toc,
+        KeyCode::Char('h') | KeyCode::Left if app.panel.is_some() => app.focus = Focus::Panel,
+        KeyCode::Char('F') => app.toggle_files(),
+        KeyCode::Char('p') if ctrl => app.open_finder(),
+        KeyCode::Char('o') => app.open_finder(),
         KeyCode::Char('?') => app.mode = Mode::Help,
         KeyCode::Char('i') => app.mode = Mode::Info,
         KeyCode::Char('T') => app.cycle_theme(),
@@ -167,18 +219,27 @@ fn normal(app: &mut App, key: KeyEvent) {
 
 pub fn handle_mouse(app: &mut App, m: MouseEvent) {
     let pos = Position::new(m.column, m.row);
-    let in_toc = app.toc_rect.is_some_and(|r| r.contains(pos));
+    let in_toc = app.panel_rect.is_some_and(|r| r.contains(pos));
     match m.kind {
+        MouseEventKind::ScrollDown if in_toc && app.panel == Some(Panel::Files) => app.files_move(3),
+        MouseEventKind::ScrollUp if in_toc && app.panel == Some(Panel::Files) => app.files_move(-3),
         MouseEventKind::ScrollDown if in_toc => app.toc_move(3),
         MouseEventKind::ScrollUp if in_toc => app.toc_move(-3),
         MouseEventKind::ScrollDown => app.scroll_by(3),
         MouseEventKind::ScrollUp => app.scroll_by(-3),
         MouseEventKind::Down(MouseButton::Left) => {
-            if let Some(r) = app.toc_rect.filter(|_| in_toc) {
-                // Mirrors the list offset logic in ui::draw_toc.
-                let row = (m.row - r.y) as usize + app.toc_offset(r.height as usize);
-                if row < app.rendered.headings.len() {
-                    app.toc_jump(row);
+            if let Some(r) = app.panel_rect.filter(|_| in_toc) {
+                // Mirrors the list offset logic in ui::draw_panel.
+                if app.panel == Some(Panel::Files) {
+                    let row = (m.row - r.y) as usize + app.files_offset(r.height as usize);
+                    if row < app.files.len() {
+                        app.open_file(row);
+                    }
+                } else {
+                    let row = (m.row - r.y) as usize + app.toc_offset(r.height as usize);
+                    if row < app.rendered.headings.len() {
+                        app.toc_jump(row);
+                    }
                 }
             } else if let Some(id) = link_at(app, app.text_rect, pos) {
                 app.follow_link(id);

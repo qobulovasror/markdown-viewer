@@ -2,6 +2,8 @@
 
 mod app;
 mod extras;
+mod files_panel;
+mod images;
 mod keys;
 mod ui;
 
@@ -11,10 +13,13 @@ use anyhow::Result;
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
 
-pub use app::{App, Source};
+pub use app::{App, Panel, Source};
 
-pub fn run(mut app: App) -> Result<()> {
+pub fn run(mut app: App, images: bool) -> Result<()> {
     let mut terminal = ratatui::init();
+    if images {
+        app.images = images::Images::detect();
+    }
     // ratatui::init's hook restores the terminal; we also release the mouse.
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

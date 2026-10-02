@@ -1,6 +1,7 @@
 mod clipboard;
 mod color;
 mod config;
+mod files;
 mod highlight;
 mod links;
 mod math;
@@ -87,8 +88,18 @@ fn run() -> Result<()> {
     } else {
         config::Config::load()?
     };
-    let src = read_input(cli.path.as_ref())?;
-    let format = match (&cli.format, &cli.path) {
+    // A directory opens its README/index (or first document) with a file panel.
+    let mut path = cli.path.clone().filter(|p| p.as_os_str() != "-");
+    let mut dir_root = None;
+    if let Some(dir) = path.clone().filter(|p| p.is_dir()) {
+        let files = files::scan(&dir);
+        let idx = files::default_file(&files)
+            .with_context(|| format!("no documents found in {}", dir.display()))?;
+        path = Some(dir.join(&files[idx]));
+        dir_root = Some((dir, files));
+    }
+    let src = read_input(path.as_ref())?;
+    let format = match (&cli.format, &path) {
         (Some(name), _) => parser::Format::from_name(name).context("unknown format")?,
         (None, Some(p)) => parser::Format::from_path(p),
         (None, None) => parser::Format::Markdown,
@@ -108,7 +119,6 @@ fn run() -> Result<()> {
             ColorChoice::Never => ColorDepth::None,
             _ => ColorDepth::detect(),
         };
-        let path = cli.path.filter(|p| p.as_os_str() != "-");
         let source = tui::Source {
             path,
             text: src,
@@ -119,7 +129,12 @@ fn run() -> Result<()> {
         }
         cfg.watch |= cli.watch;
         cfg.toc |= cli.toc;
-        return tui::run(tui::App::new(source, theme, depth, &cfg));
+        let mut app = tui::App::new(source, theme, depth, &cfg);
+        if let Some((root, files)) = dir_root {
+            app.set_root(root, files);
+            app.panel = Some(tui::Panel::Files);
+        }
+        return tui::run(app, cfg.images && std::io::stdin().is_terminal());
     }
 
     let doc = parser::parse(&src, format);
@@ -147,6 +162,7 @@ fn run() -> Result<()> {
             width,
             code_numbers: false,
             front_matter: true,
+            image_rows: Default::default(),
         },
     );
     let text = render::ansi::render(
@@ -167,10 +183,7 @@ fn run() -> Result<()> {
 
 fn read_input(path: Option<&PathBuf>) -> Result<String> {
     let bytes = match path {
-        Some(p) if p.as_os_str() != "-" => {
-            if p.is_dir() {
-                bail!("{} is a directory", p.display());
-            }
+        Some(p) => {
             std::fs::read(p).with_context(|| format!("cannot read {}", p.display()))?
         }
         _ => {

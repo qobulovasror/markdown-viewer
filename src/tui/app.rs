@@ -53,12 +53,21 @@ pub enum Mode {
     Search,
     /// Document info and front matter popup.
     Info,
+    /// Fuzzy file finder.
+    Finder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Content,
+    Panel,
+}
+
+/// Side panel content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Panel {
     Toc,
+    Files,
 }
 
 #[derive(Debug, Default)]
@@ -105,7 +114,7 @@ pub struct App {
     /// Maximum text width (focus mode); 0 means full width.
     pub max_width: usize,
     pub words: usize,
-    pub show_toc: bool,
+    pub panel: Option<Panel>,
     pub focus: Focus,
     pub toc_selected: usize,
     pub search: SearchState,
@@ -114,7 +123,13 @@ pub struct App {
     pub(super) history: Vec<HistoryEntry>,
     /// Screen areas from the last draw, for mouse hit-testing.
     pub text_rect: ratatui::layout::Rect,
-    pub toc_rect: Option<ratatui::layout::Rect>,
+    pub panel_rect: Option<ratatui::layout::Rect>,
+    /// Directory mode root and its documents (relative paths).
+    pub root: Option<PathBuf>,
+    pub files: Vec<PathBuf>,
+    pub files_selected: usize,
+    pub finder: super::files_panel::Finder,
+    pub images: Option<super::images::Images>,
     pub pending: Option<Pending>,
     /// Width restored when leaving full-width mode.
     pub focus_width: usize,
@@ -156,7 +171,7 @@ impl App {
             mouse: cfg.mouse,
             max_width: cfg.max_width,
             words,
-            show_toc: cfg.toc,
+            panel: cfg.toc.then_some(Panel::Toc),
             focus: Focus::Content,
             toc_selected: 0,
             search: SearchState::default(),
@@ -164,7 +179,12 @@ impl App {
             link_focus: None,
             history: Vec::new(),
             text_rect: Default::default(),
-            toc_rect: None,
+            panel_rect: None,
+            root: None,
+            files: Vec::new(),
+            files_selected: 0,
+            finder: Default::default(),
+            images: None,
             pending: None,
             focus_width: if cfg.max_width > 0 { cfg.max_width } else { 100 },
             state,
@@ -196,6 +216,10 @@ impl App {
 
     pub(super) fn relayout(&mut self, width: usize) {
         self.layout_width = width;
+        let image_rows = match &mut self.images {
+            Some(img) => img.plan(&self.doc, self.source.path.as_deref(), width as u16),
+            None => Default::default(),
+        };
         self.rendered = layout::layout(
             &self.doc,
             &self.theme,
@@ -203,6 +227,7 @@ impl App {
                 width,
                 code_numbers: true,
                 front_matter: false,
+                image_rows,
             },
         );
         self.link_refs = collect_link_refs(&self.rendered);
@@ -253,7 +278,7 @@ impl App {
     }
 
     /// Replaces the current document, remembering it in the history.
-    fn open_source(&mut self, source: Source) {
+    pub(super) fn open_source(&mut self, source: Source) {
         self.save_state();
         let prev = std::mem::replace(&mut self.source, source);
         self.history.push(HistoryEntry {
@@ -469,18 +494,19 @@ impl App {
             self.notify("No headings");
             return;
         }
-        self.show_toc = !self.show_toc;
-        if self.show_toc {
-            self.focus = Focus::Toc;
-            self.toc_selected = self.current_heading().unwrap_or(0);
-        } else {
+        if self.panel == Some(Panel::Toc) {
+            self.panel = None;
             self.focus = Focus::Content;
+        } else {
+            self.panel = Some(Panel::Toc);
+            self.focus = Focus::Panel;
+            self.toc_selected = self.current_heading().unwrap_or(0);
         }
     }
 
     /// TOC entry to highlight: selection when focused, else current section.
     pub fn toc_highlight(&self) -> usize {
-        if self.focus == Focus::Toc {
+        if self.focus == Focus::Panel {
             self.toc_selected
         } else {
             self.current_heading().unwrap_or(0)

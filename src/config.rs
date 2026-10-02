@@ -19,6 +19,8 @@ pub struct Config {
     pub toc: bool,
     /// Remember the reading position per file.
     pub remember_position: bool,
+    /// Show images when the terminal supports Kitty, iTerm2 or Sixel graphics.
+    pub images: bool,
 }
 
 impl Default for Config {
@@ -31,6 +33,7 @@ impl Default for Config {
             hyperlinks: true,
             toc: false,
             remember_position: true,
+            images: true,
         }
     }
 }

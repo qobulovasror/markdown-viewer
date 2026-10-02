@@ -41,6 +41,7 @@ fn random_inputs_do_not_panic() {
                     width,
                     code_numbers: true,
                     front_matter: true,
+                    image_rows: Default::default(),
                 };
                 let r = std::panic::catch_unwind(|| layout(&doc, &theme, &opts));
                 assert!(r.is_ok(), "layout panic: format {format:?} width {width} input {src:?}");

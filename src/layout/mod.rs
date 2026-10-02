@@ -3,6 +3,8 @@
 mod table;
 pub mod wrap;
 
+use std::collections::HashMap;
+
 use ratatui::style::{Modifier, Style};
 use unicode_width::UnicodeWidthStr;
 
@@ -45,6 +47,8 @@ pub struct Line {
     pub heading: Option<usize>,
     /// Index into `Rendered::code_blocks`.
     pub code: Option<usize>,
+    /// Image drawn from this line downwards: (url, rows).
+    pub image: Option<(String, u16)>,
 }
 
 impl Line {
@@ -102,6 +106,8 @@ pub struct Options {
     pub code_numbers: bool,
     /// Render front matter as a block at the top.
     pub front_matter: bool,
+    /// Rows reserved for standalone images, by URL (viewer with graphics only).
+    pub image_rows: HashMap<String, u16>,
 }
 
 pub fn layout(doc: &Document, theme: &Theme, opts: &Options) -> Rendered {
@@ -172,7 +178,20 @@ impl Layouter<'_> {
     fn block(&mut self, block: &Block, width: usize) -> Vec<Line> {
         let t = self.theme;
         match block {
-            Block::Paragraph(inl) | Block::Plain(inl) => self.paragraph(inl, t.text, width),
+            Block::Paragraph(inl) | Block::Plain(inl) => {
+                let image = standalone_image(inl)
+                    .and_then(|url| Some((url, *self.opts.image_rows.get(url)?)));
+                match image {
+                    Some((url, rows)) => {
+                        let mut out = self.paragraph(inl, t.text, width);
+                        out.truncate(1);
+                        out[0].image = Some((url.to_string(), rows));
+                        out.extend((1..rows).map(|_| Line::blank()));
+                        out
+                    }
+                    None => self.paragraph(inl, t.text, width),
+                }
+            }
             Block::Heading { level, id, content } => self.heading(*level, id, content, width),
             Block::CodeBlock { lang, code } => self.code_block(lang.as_deref(), code, width),
             Block::BlockQuote { kind, blocks } => self.quote(*kind, blocks, width),
@@ -511,6 +530,23 @@ impl Layouter<'_> {
         self.links.push(url.to_string());
         self.links.len() - 1
     }
+}
+
+/// The image URL if `inl` is a single image (optionally wrapped in a link).
+pub fn standalone_image(inl: &[Inline]) -> Option<&str> {
+    let mut found = None;
+    for i in inl {
+        match i {
+            Inline::Image { url, .. } if found.is_none() => found = Some(url.as_str()),
+            Inline::Link { content, .. } if found.is_none() => {
+                found = Some(standalone_image(content)?)
+            }
+            Inline::Text(t) if t.trim().is_empty() => {}
+            Inline::SoftBreak | Inline::HardBreak => {}
+            _ => return None,
+        }
+    }
+    found
 }
 
 /// Prepends `first` to the first line and `rest` to the others.
