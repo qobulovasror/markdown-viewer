@@ -89,6 +89,14 @@ const PIECES: &[&str] = &[
     "| a |",
     "|é|",
     "=====  ===",
+    "```mermaid\ngraph TD\n",
+    "```mermaid\nflowchart LR\n",
+    "```mermaid\nsequenceDiagram\n",
+    "A-->B",
+    "B-.->|x|C",
+    "A & B ==> C{c}",
+    "A->>B: hi",
+    "Note over A: n",
 ];
 
 struct Rng(u64);

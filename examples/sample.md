@@ -69,3 +69,12 @@ See [other doc](other.md) and [table section](#table).
 #### Fourth level
 
 [^1]: The footnote text.
+
+## Diagram
+
+```mermaid
+graph TD
+  A[Write] --> B{Review}
+  B -->|ok| C(Ship)
+  B -->|changes| A
+```

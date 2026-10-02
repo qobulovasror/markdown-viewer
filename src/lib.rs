@@ -11,6 +11,7 @@ pub mod highlight;
 pub mod layout;
 pub mod links;
 pub mod math;
+pub mod mermaid;
 pub mod parser;
 pub mod render;
 pub mod search;

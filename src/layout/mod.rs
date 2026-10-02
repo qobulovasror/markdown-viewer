@@ -380,7 +380,22 @@ impl Layouter<'_> {
             .strip_suffix('\n')
             .unwrap_or(code)
             .replace('\t', "    ");
-        for src_line in crate::highlight::highlight(&code, lang, t).iter() {
+        // Mermaid diagrams are drawn; copying the block still yields the source.
+        let diagram = lang
+            .filter(|l| l.eq_ignore_ascii_case("mermaid"))
+            .and_then(|_| crate::mermaid::render(&code, inner));
+        let src_lines: Vec<Vec<Span>> = match diagram {
+            Some(lines) => {
+                let w = lines.iter().map(|l| l.width()).max().unwrap_or(0);
+                let indent = " ".repeat(inner.saturating_sub(w) / 2);
+                lines
+                    .iter()
+                    .map(|l| diagram_spans(&format!("{indent}{l}"), t))
+                    .collect()
+            }
+            None => crate::highlight::highlight(&code, lang, t).to_vec(),
+        };
+        for src_line in &src_lines {
             // Continuation rows of a wrapped line start with a dim `↪ `
             // (skipped when the box is too narrow to fit it).
             let marker = inner >= 4;
@@ -555,6 +570,25 @@ impl Layouter<'_> {
         self.links.push(url.to_string());
         self.links.len() - 1
     }
+}
+
+/// Colors a diagram line: box art, arrows and labels get different styles.
+fn diagram_spans(line: &str, t: &Theme) -> Vec<Span> {
+    let style_of = |c: char| match c {
+        '▶' | '◀' | '▼' | '▲' => t.code_lang,
+        '↺' => t.dim,
+        '\u{2500}'..='\u{257F}' => t.bullet,
+        _ => t.code_text,
+    };
+    let mut spans: Vec<Span> = Vec::new();
+    for c in line.chars() {
+        let style = style_of(c);
+        match spans.last_mut() {
+            Some(last) if last.style == style => last.text.push(c),
+            _ => spans.push(Span::new(c.to_string(), style)),
+        }
+    }
+    spans
 }
 
 /// The image URL if `inl` is a single image (optionally wrapped in a link).

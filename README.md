@@ -53,6 +53,8 @@ mdv -p x.md | less -R
   Local documents open in place.
 - **Images** appear inline on Kitty, iTerm2, WezTerm, Ghostty and other graphics-capable terminals.
   Other terminals show `[🖼 alt]`.
+- **Mermaid** flowcharts and sequence diagrams are drawn as box art in the terminal. Wide
+  left-to-right charts switch to top-down when space is short. Other diagram types show their source.
 - **Math**: `$\sum_{i=1}^n x_i^2$` renders as `∑ᵢ₌₁ⁿ xᵢ²`. Also **emoji** shortcodes (`:rocket:` → 🚀)
   and common inline HTML (`<kbd>`, `<sup>`, `<img>`, `<a>`).
 - **Viewer**: vim/less keys, regex search, link navigation with history, bookmarks, copy a code block,
