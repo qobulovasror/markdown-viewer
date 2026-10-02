@@ -1,0 +1,4 @@
+# Keep LF everywhere so snapshot tests match on Windows checkouts.
+* text=auto eol=lf
+*.gif binary
+*.png binary

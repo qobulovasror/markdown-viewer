@@ -117,9 +117,10 @@ mod tests {
             resolve("https://x.dev", Some(base)),
             Target::External("https://x.dev".into())
         );
-        assert_eq!(
-            resolve("img/a%20b.png", Some(base)),
-            Target::External("docs/img/a b.png".into())
-        );
+        // Compare as paths: on Windows `join` inserts `\`.
+        let Target::External(img) = resolve("img/a%20b.png", Some(base)) else {
+            panic!("expected external target");
+        };
+        assert_eq!(Path::new(&img), Path::new("docs/img/a b.png"));
     }
 }
