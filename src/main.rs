@@ -3,6 +3,7 @@ mod color;
 mod config;
 mod highlight;
 mod links;
+mod math;
 mod layout;
 mod parser;
 mod render;
@@ -63,6 +64,10 @@ struct Cli {
     #[arg(long)]
     toc: bool,
 
+    /// Input format (default: from file extension, Markdown for stdin).
+    #[arg(short, long, value_parser = clap::builder::PossibleValuesParser::new(parser::FORMAT_NAMES))]
+    format: Option<String>,
+
     /// Ignore the config file.
     #[arg(long)]
     no_config: bool,
@@ -83,6 +88,11 @@ fn run() -> Result<()> {
         config::Config::load()?
     };
     let src = read_input(cli.path.as_ref())?;
+    let format = match (&cli.format, &cli.path) {
+        (Some(name), _) => parser::Format::from_name(name).context("unknown format")?,
+        (None, Some(p)) => parser::Format::from_path(p),
+        (None, None) => parser::Format::Markdown,
+    };
 
     let stdout = std::io::stdout();
     let tty = stdout.is_terminal();
@@ -99,7 +109,11 @@ fn run() -> Result<()> {
             _ => ColorDepth::detect(),
         };
         let path = cli.path.filter(|p| p.as_os_str() != "-");
-        let source = tui::Source { path, text: src };
+        let source = tui::Source {
+            path,
+            text: src,
+            format,
+        };
         if let Some(w) = cli.width {
             cfg.max_width = w;
         }
@@ -108,7 +122,7 @@ fn run() -> Result<()> {
         return tui::run(tui::App::new(source, theme, depth, &cfg));
     }
 
-    let doc = parser::markdown::parse(&src);
+    let doc = parser::parse(&src, format);
     let width = cli.width.unwrap_or_else(|| {
         if tty {
             crossterm::terminal::size().map_or(80, |(w, _)| w as usize)
@@ -132,6 +146,7 @@ fn run() -> Result<()> {
         &layout::Options {
             width,
             code_numbers: false,
+            front_matter: true,
         },
     );
     let text = render::ansi::render(

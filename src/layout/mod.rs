@@ -100,6 +100,8 @@ pub struct Options {
     pub width: usize,
     /// Show `[n]` on code blocks so they can be copied by number.
     pub code_numbers: bool,
+    /// Render front matter as a block at the top.
+    pub front_matter: bool,
 }
 
 pub fn layout(doc: &Document, theme: &Theme, opts: &Options) -> Rendered {
@@ -112,7 +114,14 @@ pub fn layout(doc: &Document, theme: &Theme, opts: &Options) -> Rendered {
         list_depth: 0,
     };
     let width = opts.width.max(20);
-    let mut lines = l.blocks(&doc.blocks, width);
+    let mut lines = Vec::new();
+    if opts.front_matter
+        && let Some(fm) = &doc.front_matter
+    {
+        lines.extend(l.front_matter(fm, width));
+        lines.push(Line::blank());
+    }
+    lines.extend(l.blocks(&doc.blocks, width));
     while lines.last().is_some_and(|ln| ln.spans.is_empty()) {
         lines.pop();
     }
@@ -206,9 +215,19 @@ impl Layouter<'_> {
                 }
                 out
             }
-            Block::Math(m) => m
+            Block::Math(m) => crate::math::to_unicode(m)
                 .lines()
-                .map(|l| Line::new(vec![Span::new(format!("    {l}"), t.math)]))
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .flat_map(|l| {
+                    wrap::hard_wrap(vec![Span::new(l, t.math)], width.saturating_sub(4))
+                        .into_iter()
+                        .map(|row| {
+                            let mut spans = vec![Span::new("    ", t.math)];
+                            spans.extend(row);
+                            Line::new(spans)
+                        })
+                })
                 .collect(),
             Block::Html(html) => {
                 let text = strip_html(html);
@@ -221,6 +240,39 @@ impl Layouter<'_> {
             }
             Block::Rule => vec![Line::new(vec![Span::new("─".repeat(width), t.rule)])],
         }
+    }
+
+    fn front_matter(&mut self, fm: &str, width: usize) -> Vec<Line> {
+        let t = self.theme;
+        let b = t.code_border;
+        let inner = width.saturating_sub(4).max(1);
+        let title = " front matter ";
+        let mut out = vec![Line::new(vec![
+            Span::new("╭─", b),
+            Span::new(title, t.dim),
+            Span::new(format!("{}╮", "─".repeat(width.saturating_sub(3 + title.width()))), b),
+        ])];
+        for src in fm.lines() {
+            let spans = match src.split_once(':') {
+                Some((k, v)) => vec![
+                    Span::new(format!("{k}:"), t.code_lang),
+                    Span::new(v.to_string(), t.dim),
+                ],
+                None => vec![Span::new(src.to_string(), t.dim)],
+            };
+            for row in wrap::hard_wrap(spans, inner) {
+                let pad = inner.saturating_sub(wrap::width(&row));
+                let mut spans = vec![Span::new("│ ", b)];
+                spans.extend(row);
+                spans.push(Span::new(format!("{} │", " ".repeat(pad)), b));
+                out.push(Line::new(spans));
+            }
+        }
+        out.push(Line::new(vec![Span::new(
+            format!("╰{}╯", "─".repeat(width.saturating_sub(2))),
+            b,
+        )]));
+        out
     }
 
     fn paragraph(&mut self, inl: &[Inline], base: Style, width: usize) -> Vec<Line> {
@@ -418,16 +470,8 @@ impl Layouter<'_> {
                 Inline::Emph(c) => self.flatten(c, base.patch(t.emph), link, out),
                 Inline::Strong(c) => self.flatten(c, base.patch(t.strong), link, out),
                 Inline::Strike(c) => self.flatten(c, base.patch(t.strike), link, out),
-                Inline::Sup(c) => {
-                    out.push(span("^(".into(), base));
-                    self.flatten(c, base, link, out);
-                    out.push(span(")".into(), base));
-                }
-                Inline::Sub(c) => {
-                    out.push(span("_(".into(), base));
-                    self.flatten(c, base, link, out);
-                    out.push(span(")".into(), base));
-                }
+                Inline::Sup(c) => out.push(span(crate::math::superscript(&plain_text(c)), base)),
+                Inline::Sub(c) => out.push(span(crate::math::subscript(&plain_text(c)), base)),
                 Inline::Link { url, content } => {
                     let id = self.push_link(url);
                     self.flatten(content, base.patch(t.link), Some(id), out);
@@ -450,7 +494,7 @@ impl Layouter<'_> {
                     }));
                 }
                 Inline::Math(m) | Inline::DisplayMath(m) => {
-                    out.push(span(m.clone(), base.patch(t.math)))
+                    out.push(span(crate::math::to_unicode(m), base.patch(t.math)))
                 }
                 Inline::Html(_) => {}
                 Inline::SoftBreak => out.push(Seg::Space(Span {

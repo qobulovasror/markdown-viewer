@@ -1,0 +1,30 @@
+= AsciiDoc sample
+:author: mdv
+:toc:
+
+== Overview
+
+Text with *bold*, _italic_, `code` and a https://asciidoc.org[link].
+
+* Item one
+** Nested item
+* [x] Done item
+
+. First
+. Second
+
+NOTE: This is a note.
+
+[source,rust]
+----
+fn main() {
+    println!("hi");
+}
+----
+
+|===
+| Name | Value
+
+| a | 1
+| b | 2
+|===

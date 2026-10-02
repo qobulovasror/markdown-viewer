@@ -33,8 +33,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     };
     draw_content(f, app, content);
     draw_status(f, app, status);
-    if app.mode == Mode::Help {
-        draw_help(f, app, area);
+    match app.mode {
+        Mode::Help => draw_help(f, app, area),
+        Mode::Info => draw_info(f, app, area),
+        _ => {}
     }
 }
 
@@ -274,9 +276,72 @@ pub const HELP: &[(&str, &str)] = &[
     ("r", "Reload file"),
     ("M", "Toggle mouse capture (text selection)"),
     ("Esc", "Clear search / link focus, then quit"),
+    ("i", "Document info and front matter"),
     ("?", "Toggle this help"),
     ("q", "Quit"),
 ];
+
+fn draw_info(f: &mut Frame, app: &App, area: Rect) {
+    let t = &app.theme;
+    let key = app.depth.adapt(t.ui_accent);
+    let r = &app.rendered;
+    let path = app
+        .source
+        .path
+        .as_ref()
+        .map_or("stdin".to_string(), |p| p.display().to_string());
+    let mut rows: Vec<(String, String)> = vec![
+        ("File".into(), path),
+        ("Format".into(), format!("{:?}", app.source.format)),
+        ("Words".into(), format!("{} (~{} min)", app.words, app.reading_minutes())),
+        ("Headings".into(), r.headings.len().to_string()),
+        ("Links".into(), r.links.len().to_string()),
+        ("Code blocks".into(), r.code_blocks.len().to_string()),
+    ];
+    if let Some(fm) = &app.doc.front_matter {
+        rows.push((String::new(), String::new()));
+        for l in fm.lines() {
+            let (k, v) = l.split_once(':').unwrap_or((l, ""));
+            rows.push((k.trim().to_string(), v.trim().to_string()));
+        }
+    }
+    let key_w = rows.iter().map(|(k, _)| k.width()).max().unwrap_or(0);
+    let lines: Vec<TLine> = rows
+        .into_iter()
+        .map(|(k, v)| {
+            TLine::from(vec![
+                TSpan::styled(format!(" {k:<key_w$}  "), key),
+                TSpan::raw(v),
+            ])
+        })
+        .collect();
+    popup(f, app, area, " Document ", lines);
+}
+
+fn popup(f: &mut Frame, app: &App, area: Rect, title: &str, lines: Vec<TLine>) {
+    let t = &app.theme;
+    let w = (lines.iter().map(TLine::width).max().unwrap_or(20) as u16 + 4).min(area.width);
+    let h = (lines.len() as u16 + 2).min(area.height);
+    let rect = Rect::new(
+        area.x + (area.width - w) / 2,
+        area.y + (area.height - h) / 2,
+        w,
+        h,
+    );
+    f.render_widget(Clear, rect);
+    let block = Block::new()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(app.depth.adapt(t.dim))
+        .title(title.to_string())
+        .style(app.depth.adapt(t.text));
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(ratatui::widgets::Wrap { trim: false }),
+        rect,
+    );
+}
 
 fn draw_help(f: &mut Frame, app: &App, area: Rect) {
     let t = &app.theme;
@@ -290,20 +355,5 @@ fn draw_help(f: &mut Frame, app: &App, area: Rect) {
             ])
         })
         .collect();
-    let w = (lines.iter().map(TLine::width).max().unwrap_or(20) as u16 + 4).min(area.width);
-    let h = (lines.len() as u16 + 2).min(area.height);
-    let popup = Rect::new(
-        area.x + (area.width - w) / 2,
-        area.y + (area.height - h) / 2,
-        w,
-        h,
-    );
-    f.render_widget(Clear, popup);
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(app.depth.adapt(t.dim))
-        .title(" Keys ")
-        .style(app.depth.adapt(t.text));
-    f.render_widget(Paragraph::new(lines).block(block), popup);
+    popup(f, app, area, " Keys ", lines);
 }

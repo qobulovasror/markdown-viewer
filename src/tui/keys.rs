@@ -13,8 +13,8 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
     match app.mode {
-        Mode::Help => {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | '?')) {
+        Mode::Help | Mode::Info => {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | '?' | 'i') | KeyCode::Enter) {
                 app.mode = Mode::Normal;
             }
         }
@@ -135,6 +135,7 @@ fn normal(app: &mut App, key: KeyEvent) {
         KeyCode::Char('t') => app.toggle_toc(),
         KeyCode::Char('h') | KeyCode::Left if app.show_toc => app.focus = Focus::Toc,
         KeyCode::Char('?') => app.mode = Mode::Help,
+        KeyCode::Char('i') => app.mode = Mode::Info,
         KeyCode::Char('T') => app.cycle_theme(),
         KeyCode::Char('m') => {
             app.pending = Some(Pending::Mark);

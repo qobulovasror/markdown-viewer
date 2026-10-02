@@ -20,6 +20,7 @@ use crate::theme::Theme;
 pub struct Source {
     pub path: Option<PathBuf>,
     pub text: String,
+    pub format: parser::Format,
 }
 
 impl Source {
@@ -29,6 +30,7 @@ impl Source {
         Ok(Source {
             path: Some(path.to_path_buf()),
             text: String::from_utf8_lossy(&bytes).into_owned(),
+            format: parser::Format::from_path(path),
         })
     }
 
@@ -49,6 +51,8 @@ pub enum Mode {
     Help,
     /// Typing a search query.
     Search,
+    /// Document info and front matter popup.
+    Info,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,7 +131,7 @@ pub struct App {
 
 impl App {
     pub fn new(source: Source, theme: Theme, depth: ColorDepth, cfg: &Config) -> App {
-        let doc = parser::markdown::parse(&source.text);
+        let doc = parser::parse(&source.text, source.format);
         let words = count_words(&source.text);
         let state = if cfg.remember_position {
             State::load()
@@ -198,6 +202,7 @@ impl App {
             &layout::Options {
                 width,
                 code_numbers: true,
+                front_matter: false,
             },
         );
         self.link_refs = collect_link_refs(&self.rendered);
@@ -232,7 +237,9 @@ impl App {
             self.notify("stdin cannot be reloaded");
             return Ok(());
         };
+        let format = self.source.format;
         self.source = Source::from_file(&path)?;
+        self.source.format = format;
         self.reparse();
         let anchor = self.position_anchor();
         self.relayout(self.layout_width.max(20));
@@ -241,7 +248,7 @@ impl App {
     }
 
     fn reparse(&mut self) {
-        self.doc = parser::markdown::parse(&self.source.text);
+        self.doc = parser::parse(&self.source.text, self.source.format);
         self.words = count_words(&self.source.text);
     }
 
