@@ -14,6 +14,7 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
 
 pub use app::{App, Panel, Source};
+pub use ui::HELP;
 
 pub fn run(mut app: App, images: bool) -> Result<()> {
     let mut terminal = ratatui::init();

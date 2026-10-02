@@ -33,8 +33,16 @@ jobs:
         shell: bash
         run: |
           name=mdv-${GITHUB_REF_NAME}-${{ matrix.target }}
-          mkdir "$name"
+          bin=target/${{ matrix.target }}/release/mdv
+          [[ "${{ matrix.target }}" == *windows* ]] && bin="$bin.exe"
+          mkdir -p "$name/completions"
           cp README.md LICENSE "$name"/
+          # Builds are native, so the binary can generate its own docs.
+          "$bin" --man > "$name/mdv.1"
+          "$bin" --completions bash > "$name/completions/mdv.bash"
+          "$bin" --completions zsh > "$name/completions/_mdv"
+          "$bin" --completions fish > "$name/completions/mdv.fish"
+          "$bin" --completions powershell > "$name/completions/_mdv.ps1"
           if [[ "${{ matrix.target }}" == *windows* ]]; then
             cp target/${{ matrix.target }}/release/mdv.exe "$name"/
             7z a "$name.zip" "$name"

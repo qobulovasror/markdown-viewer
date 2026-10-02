@@ -2,7 +2,7 @@ use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, ValueEnum};
+use clap::{CommandFactory, Parser, ValueEnum};
 
 use mdv::color::ColorDepth;
 use mdv::theme::{self, Theme};
@@ -57,6 +57,14 @@ struct Cli {
     /// Ignore the config file.
     #[arg(long)]
     no_config: bool,
+
+    /// Print shell completions to stdout.
+    #[arg(long, value_name = "SHELL", exclusive = true)]
+    completions: Option<clap_complete::Shell>,
+
+    /// Print the man page (roff) to stdout.
+    #[arg(long, exclusive = true)]
+    man: bool,
 }
 
 fn main() {
@@ -68,6 +76,13 @@ fn main() {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
+    if let Some(shell) = cli.completions {
+        clap_complete::generate(shell, &mut Cli::command(), "mdv", &mut std::io::stdout());
+        return Ok(());
+    }
+    if cli.man {
+        return write_man(&mut std::io::stdout().lock());
+    }
     let mut cfg = if cli.no_config {
         config::Config::default()
     } else {
@@ -160,6 +175,37 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+/// Man page: clap's sections plus viewer keys and file locations.
+fn write_man(w: &mut dyn Write) -> Result<()> {
+    let man = clap_mangen::Man::new(Cli::command());
+    man.render_title(w)?;
+    man.render_name_section(w)?;
+    man.render_synopsis_section(w)?;
+    man.render_description_section(w)?;
+    man.render_options_section(w)?;
+    let esc = |s: &str| s.replace('\\', "\\\\").replace('-', "\\-");
+    writeln!(w, ".SH KEYS")?;
+    for (key, desc) in tui::HELP {
+        writeln!(w, ".TP\n\\fB{}\\fR\n{}", esc(key), esc(desc))?;
+    }
+    writeln!(w, ".SH FILES")?;
+    writeln!(
+        w,
+        ".TP\n\\fI~/.config/mdv/config.toml\\fR\nOptional configuration (theme, max_width, mouse, watch, hyperlinks, toc, remember_position, images)."
+    )?;
+    writeln!(
+        w,
+        ".TP\n\\fI~/.local/state/mdv/state.json\\fR\nSaved reading positions and bookmarks."
+    )?;
+    writeln!(w, ".SH ENVIRONMENT")?;
+    writeln!(
+        w,
+        ".TP\n\\fBNO_COLOR\\fR\nDisable colors.\n.TP\n\\fBVISUAL\\fR, \\fBEDITOR\\fR\nEditor opened with the \\fBe\\fR key."
+    )?;
+    man.render_version_section(w)?;
+    Ok(())
+}
+
 fn read_input(path: Option<&PathBuf>) -> Result<String> {
     let bytes = match path {
         Some(p) => std::fs::read(p).with_context(|| format!("cannot read {}", p.display()))?,
@@ -175,4 +221,22 @@ fn read_input(path: Option<&PathBuf>) -> Result<String> {
         }
     };
     Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_definition_is_valid() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn man_page_has_keys_section() {
+        let mut out = Vec::new();
+        write_man(&mut out).unwrap();
+        let man = String::from_utf8(out).unwrap();
+        assert!(man.contains(".SH KEYS") && man.contains(".SH OPTIONS"));
+    }
 }

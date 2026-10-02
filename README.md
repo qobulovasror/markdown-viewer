@@ -71,6 +71,20 @@ cargo install --git https://github.com/qobulovasror/markdown-viewer   # latest s
 cargo install --path .                                           # from a local clone
 ```
 
+<details>
+<summary><b>Shell completions and man page</b></summary>
+
+```sh
+mdv --completions bash > ~/.local/share/bash-completion/completions/mdv
+mdv --completions zsh  > ~/.zfunc/_mdv           # add ~/.zfunc to $fpath
+mdv --completions fish > ~/.config/fish/completions/mdv.fish
+mdv --man > ~/.local/share/man/man1/mdv.1
+```
+
+Release archives already include `mdv.1` and a `completions/` folder.
+
+</details>
+
 Prebuilt binaries for macOS, Linux and Windows are attached to
 [GitHub releases](https://github.com/qobulovasror/markdown-viewer/releases). A Homebrew formula template
 lives in [`packaging/mdv.rb`](packaging/mdv.rb).
@@ -100,6 +114,8 @@ mdv -p --width 80 --color always x.md | less -R
 | `--color <when>` | `auto`, `always`, `never` |
 | `--no-hyperlinks` | Disable OSC 8 links |
 | `--no-config` | Ignore the config file |
+| `--completions <shell>` | Print completions for `bash`, `zsh`, `fish`, `elvish` or `powershell` |
+| `--man` | Print the man page |
 
 </details>
 

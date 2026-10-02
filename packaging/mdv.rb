@@ -30,6 +30,10 @@ class Mdv < Formula
 
   def install
     bin.install "mdv"
+    man1.install "mdv.1"
+    bash_completion.install "completions/mdv.bash" => "mdv"
+    zsh_completion.install "completions/_mdv"
+    fish_completion.install "completions/mdv.fish"
   end
 
   test do
