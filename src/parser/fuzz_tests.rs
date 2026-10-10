@@ -140,6 +140,7 @@ fn random_inputs_do_not_panic() {
                     code_numbers: true,
                     front_matter: true,
                     image_rows: Default::default(),
+                    wrap_code: true,
                 };
                 let r = std::panic::catch_unwind(|| layout(&doc, &theme, &opts));
                 assert!(

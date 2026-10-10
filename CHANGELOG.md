@@ -22,6 +22,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   print mode renders each with a `==> name <==` header.
 - `mdvw file.md#heading` opens at that heading.
 - `O` opens the focused link with the browser or system app.
+- Long code lines can scroll sideways instead of wrapping: `W` toggles, `←`/`→` (or `<`/`>`)
+  scroll; config `wrap_code = false` makes it the default.
+- `/` in the contents panel filters headings.
+- `S` searches every file of the list or folder and opens the chosen hit.
+- `Y` copies the focused link, or `file#heading` for the current section.
+- Recently opened files: `R` in the viewer, `mdvw --recent` on the command line.
 - Key bindings can be changed with a `[keys]` table in the config file.
 - Count prefixes: `5j`, `3]`, `42G` (line 42), `50%`, `3y` (copy code block 3).
 - Forward navigation (`L`), with `H` as another key for back.
@@ -30,6 +36,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The help screen scrolls on small terminals and lists the active key bindings.
 
 ### Changed
+- `←` no longer focuses the side panel (`h` still does); it scrolls code sideways.
 - `Esc` no longer quits; it clears the search, link focus or count. Use `q` to quit, or bind
   `quit = ["q", "esc"]` for the old behavior.
 - Unknown keys in the config file are reported as warnings instead of errors.

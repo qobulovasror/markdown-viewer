@@ -4,6 +4,7 @@ use std::process::Command;
 
 use super::app::App;
 use crate::clipboard;
+use crate::links::Target;
 use crate::state::Position;
 use crate::watch::FileWatcher;
 
@@ -107,6 +108,29 @@ impl App {
                 i + 1,
                 code.lines().count()
             )),
+            Err(e) => self.notify(format!("Copy failed: {e}")),
+        }
+    }
+
+    /// Copies the focused link's target, or a link to the current section.
+    pub fn copy_link(&mut self) {
+        let text = match self.focused_link_id() {
+            Some(id) => match self.link_target(&self.rendered.links[id]) {
+                Target::Anchor(a) => format!("{}#{a}", self.source.location()),
+                Target::Document(p, Some(a)) => format!("{}#{a}", p.display()),
+                Target::Document(p, None) => p.display().to_string(),
+                Target::External(u) => u,
+            },
+            None => {
+                let mut loc = self.source.location();
+                if let Some(h) = self.current_heading() {
+                    loc = format!("{loc}#{}", self.rendered.headings[h].id);
+                }
+                loc
+            }
+        };
+        match clipboard::copy(&text) {
+            Ok(via) => self.notify(format!("Copied {text} to {via}")),
             Err(e) => self.notify(format!("Copy failed: {e}")),
         }
     }

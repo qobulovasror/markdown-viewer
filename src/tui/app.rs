@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use unicode_width::UnicodeWidthStr;
 
 use super::input::{History, LineInput};
 use super::keymap::Keymap;
@@ -89,6 +90,8 @@ pub enum Mode {
     Info,
     /// Fuzzy file finder.
     Finder,
+    /// Search across the file list / folder.
+    Grep,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,7 +164,12 @@ pub struct App {
     pub words: usize,
     pub panel: Option<Panel>,
     pub focus: Focus,
+    /// Position in `toc_entries()`.
     pub toc_selected: usize,
+    /// Narrows the contents panel to matching headings.
+    pub toc_filter: LineInput,
+    /// Typing into `toc_filter`.
+    pub toc_filtering: bool,
     pub search: SearchState,
     pub link_refs: Vec<LinkRef>,
     pub link_focus: Option<usize>,
@@ -173,6 +181,11 @@ pub struct App {
     pub count: Option<usize>,
     pub help_scroll: usize,
     pub fetch: Option<Fetch>,
+    pub wrap_code: bool,
+    /// Columns that unwrapped code rows are scrolled to the left.
+    pub hscroll: usize,
+    /// Largest useful `hscroll` for the current layout.
+    pub(super) hscroll_max: usize,
     /// Screen areas from the last draw, for mouse hit-testing.
     pub text_rect: ratatui::layout::Rect,
     pub panel_rect: Option<ratatui::layout::Rect>,
@@ -181,6 +194,7 @@ pub struct App {
     pub files: Vec<PathBuf>,
     pub files_selected: usize,
     pub finder: super::files_panel::Finder,
+    pub grep: super::grep::Grep,
     pub images: Option<super::images::Images>,
     pub pending: Option<Pending>,
     /// External target waiting for confirmation (`Pending::Open`).
@@ -232,6 +246,8 @@ impl App {
             panel: cfg.toc.then_some(Panel::Toc),
             focus: Focus::Content,
             toc_selected: 0,
+            toc_filter: LineInput::default(),
+            toc_filtering: false,
             search: SearchState::default(),
             link_refs: Vec::new(),
             link_focus: None,
@@ -241,12 +257,16 @@ impl App {
             count: None,
             help_scroll: 0,
             fetch: None,
+            wrap_code: cfg.wrap_code,
+            hscroll: 0,
+            hscroll_max: 0,
             text_rect: Default::default(),
             panel_rect: None,
             root: None,
             files: Vec::new(),
             files_selected: 0,
             finder: Default::default(),
+            grep: Default::default(),
             images: None,
             pending: None,
             confirm_target: None,
@@ -307,9 +327,21 @@ impl App {
                 code_numbers: true,
                 front_matter: false,
                 image_rows,
+                wrap_code: self.wrap_code,
             },
         );
         self.link_refs = collect_link_refs(&self.rendered);
+        self.hscroll_max = self
+            .rendered
+            .lines
+            .iter()
+            .filter_map(|l| {
+                let inner = l.hscroll? as usize;
+                Some(crate::layout::wrap::width(&l.spans).saturating_sub(4 + inner))
+            })
+            .max()
+            .unwrap_or(0);
+        self.hscroll = self.hscroll.min(self.hscroll_max);
         self.link_focus = None;
         self.refresh_search();
     }
@@ -379,10 +411,13 @@ impl App {
             scroll: self.scroll,
         });
         self.forward.clear();
+        self.hscroll = 0;
         self.reparse();
         self.relayout(self.layout_width.max(20));
         self.scroll = 0;
         self.toc_selected = 0;
+        self.toc_filter.clear();
+        self.toc_filtering = false;
         self.rewatch();
     }
 
@@ -436,6 +471,10 @@ impl App {
             && source.text == self.source.text;
         if !same {
             self.save_state();
+            self.toc_filter.clear();
+            self.toc_filtering = false;
+            self.toc_selected = 0;
+            self.hscroll = 0;
             self.source = source;
             self.reparse();
             self.relayout(self.layout_width.max(20));
@@ -668,6 +707,21 @@ impl App {
         }
     }
 
+    /// Searches for `query` and selects its `nth` match (clamped), as after a
+    /// folder search hit; source and rendered text may differ slightly.
+    pub fn search_for(&mut self, query: &str, nth: usize) {
+        self.search.query = query.to_string();
+        self.refresh_search();
+        let n = self.search.matches.len();
+        if n == 0 {
+            self.notify(format!("Pattern not found: {query}"));
+            return;
+        }
+        let i = nth.min(n - 1);
+        self.search.current = Some(i);
+        self.reveal_match(i);
+    }
+
     pub fn clear_search(&mut self) {
         self.set_query("");
     }
@@ -684,7 +738,26 @@ impl App {
             .position(|m| m.line >= from)
             .or((!self.search.matches.is_empty()).then_some(0));
         if let Some(i) = self.search.current {
-            self.ensure_visible(self.search.matches[i].line);
+            self.reveal_match(i);
+        }
+    }
+
+    /// Scrolls so match `i` is on screen, sideways too for unwrapped code rows.
+    fn reveal_match(&mut self, i: usize) {
+        let m = self.search.matches[i];
+        self.ensure_visible(m.line);
+        let line = &self.rendered.lines[m.line];
+        let Some(inner) = line.hscroll.map(usize::from) else {
+            return;
+        };
+        let text = line.text();
+        let start = text
+            .get(..m.start)
+            .map_or(0, |s| s.width())
+            .saturating_sub(2);
+        let end = text.get(..m.end).map_or(0, |s| s.width()).saturating_sub(2);
+        if start < self.hscroll || end > self.hscroll + inner {
+            self.hscroll = start.saturating_sub(inner / 3).min(self.hscroll_max);
         }
     }
 
@@ -715,7 +788,7 @@ impl App {
             self.notify("Search wrapped");
         }
         self.search.current = Some(next);
-        self.ensure_visible(self.search.matches[next].line);
+        self.reveal_match(next);
     }
 
     pub fn toggle_toc(&mut self) {
@@ -723,46 +796,113 @@ impl App {
             self.notify("No headings");
             return;
         }
+        self.toc_filtering = false;
         if self.panel == Some(Panel::Toc) {
             self.panel = None;
             self.focus = Focus::Content;
         } else {
             self.panel = Some(Panel::Toc);
             self.focus = Focus::Panel;
-            self.toc_selected = self.current_heading().unwrap_or(0);
+            self.toc_selected = self.toc_current().unwrap_or(0);
         }
     }
 
-    /// TOC entry to highlight: selection when focused, else current section.
+    /// Headings shown in the contents panel (all, or those matching the filter).
+    pub fn toc_entries(&self) -> Vec<usize> {
+        let q = self.toc_filter.text.trim();
+        let hs = &self.rendered.headings;
+        if q.is_empty() {
+            return (0..hs.len()).collect();
+        }
+        // Every word must appear; smart-case like search.
+        let sensitive = q.chars().any(char::is_uppercase);
+        let fold = |s: &str| {
+            if sensitive {
+                s.to_string()
+            } else {
+                s.to_lowercase()
+            }
+        };
+        let words: Vec<String> = q.split_whitespace().map(fold).collect();
+        (0..hs.len())
+            .filter(|&i| {
+                let title = fold(&hs[i].title);
+                words.iter().all(|w| title.contains(w.as_str()))
+            })
+            .collect()
+    }
+
+    /// Position of the current section in `toc_entries()`.
+    fn toc_current(&self) -> Option<usize> {
+        let h = self.current_heading()?;
+        self.toc_entries().iter().position(|&i| i == h)
+    }
+
+    /// Row to highlight: the selection when focused, else the current section.
     pub fn toc_highlight(&self) -> usize {
         if self.focus == Focus::Panel {
             self.toc_selected
         } else {
-            self.current_heading().unwrap_or(0)
+            self.toc_current().unwrap_or(0)
         }
     }
 
     /// First visible TOC row for a panel of `height` rows.
     pub fn toc_offset(&self, height: usize) -> usize {
-        let n = self.rendered.headings.len();
+        let n = self.toc_entries().len();
         self.toc_highlight()
             .saturating_sub(height / 2)
             .min(n.saturating_sub(height))
     }
 
     pub fn toc_move(&mut self, delta: isize) {
-        let n = self.rendered.headings.len();
-        if n > 0 {
-            self.toc_selected = self.toc_selected.saturating_add_signed(delta).min(n - 1);
-        }
+        let n = self.toc_entries().len();
+        self.toc_selected = self
+            .toc_selected
+            .saturating_add_signed(delta)
+            .min(n.saturating_sub(1));
     }
 
+    /// Jumps to the heading at row `idx` of the panel.
     pub fn toc_jump(&mut self, idx: usize) {
-        if let Some(h) = self.rendered.headings.get(idx) {
-            let id = h.id.clone();
-            self.toc_selected = idx;
-            self.jump_to_anchor(&id);
+        let Some(&h) = self.toc_entries().get(idx) else {
+            return;
+        };
+        let id = self.rendered.headings[h].id.clone();
+        self.toc_selected = idx;
+        self.jump_to_anchor(&id);
+    }
+
+    pub fn toc_filter_changed(&mut self) {
+        self.toc_selected = 0;
+    }
+
+    /// Wraps long code lines, or keeps them whole for horizontal scrolling.
+    pub fn toggle_wrap(&mut self) {
+        self.wrap_code = !self.wrap_code;
+        self.hscroll = 0;
+        let anchor = self.position_anchor();
+        self.relayout(self.layout_width.max(20));
+        self.restore_anchor(anchor);
+        self.notify(if self.wrap_code {
+            "Code lines wrap"
+        } else {
+            "Code lines scroll: ← / →"
+        });
+    }
+
+    pub fn scroll_horizontal(&mut self, delta: isize) {
+        if self.wrap_code {
+            self.notify("Code lines wrap; press W to scroll them sideways instead");
+            return;
         }
+        if self.hscroll_max == 0 {
+            self.notify("No long code lines");
+        }
+        self.hscroll = self
+            .hscroll
+            .saturating_add_signed(delta)
+            .min(self.hscroll_max);
     }
 
     /// Switches to the next built-in theme.

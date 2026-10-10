@@ -56,6 +56,10 @@ struct Cli {
     #[arg(short, long, value_parser = clap::builder::PossibleValuesParser::new(parser::FORMAT_NAMES))]
     format: Option<String>,
 
+    /// List recently opened files, newest first.
+    #[arg(long, exclusive = true)]
+    recent: bool,
+
     /// Ignore the config file.
     #[arg(long)]
     no_config: bool,
@@ -84,6 +88,13 @@ fn run() -> Result<()> {
     }
     if cli.man {
         return write_man(&mut std::io::stdout().lock());
+    }
+    if cli.recent {
+        let mut out = std::io::stdout().lock();
+        for p in mdvw::state::State::load().recent() {
+            writeln!(out, "{}", p.display())?;
+        }
+        return Ok(());
     }
     let mut cfg = if cli.no_config {
         config::Config::default()
@@ -201,7 +212,7 @@ fn write_man(w: &mut dyn Write) -> Result<()> {
     writeln!(w, ".SH FILES")?;
     writeln!(
         w,
-        ".TP\n\\fI~/.config/mdvw/config.toml\\fR\nOptional configuration (theme, max_width, mouse, watch, hyperlinks, toc, remember_position, images, and a [keys] table mapping action names to keys)."
+        ".TP\n\\fI~/.config/mdvw/config.toml\\fR\nOptional configuration (theme, max_width, mouse, watch, hyperlinks, toc, remember_position, images, wrap_code, and a [keys] table mapping action names to keys)."
     )?;
     writeln!(
         w,
@@ -313,7 +324,7 @@ fn split_anchor(p: &std::path::Path) -> (PathBuf, Option<String>) {
 
 fn read_stdin() -> Result<String> {
     if std::io::stdin().is_terminal() {
-        bail!("no input file given (try `mdvw README.md` or `mdvw --help`)");
+        bail!("no input file given (try `mdvw README.md`, `mdvw --recent` or `mdvw --help`)");
     }
     let mut buf = Vec::new();
     std::io::stdin()

@@ -14,6 +14,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     if key.kind == KeyEventKind::Release {
         return;
     }
+    // A filter left behind when the panel lost focus stops taking keys.
+    if app.toc_filtering && !(app.focus == Focus::Panel && app.panel == Some(Panel::Toc)) {
+        app.toc_filtering = false;
+    }
     if app.mode == Mode::Normal
         && let Some(p) = app.pending.take()
     {
@@ -32,6 +36,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         }
         Mode::Search => search_input(app, key),
         Mode::Finder => finder(app, key),
+        Mode::Grep => grep(app, key),
         Mode::Normal if app.focus == Focus::Panel && app.panel == Some(Panel::Toc) => {
             if toc(app, key) {
                 app.count = None;
@@ -84,6 +89,23 @@ fn search_input(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn grep(app: &mut App, key: KeyEvent) {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Esc => app.mode = Mode::Normal,
+        KeyCode::Enter => app.grep_enter(),
+        KeyCode::Down | KeyCode::Tab => app.grep_move(1),
+        KeyCode::Char('n' | 'j') if ctrl => app.grep_move(1),
+        KeyCode::Up | KeyCode::BackTab => app.grep_move(-1),
+        KeyCode::Char('p' | 'k') if ctrl => app.grep_move(-1),
+        KeyCode::PageDown => app.grep_move(10),
+        KeyCode::PageUp => app.grep_move(-10),
+        _ => {
+            app.grep.input.handle(&key);
+        }
+    }
+}
+
 fn finder(app: &mut App, key: KeyEvent) {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     match key.code {
@@ -112,7 +134,9 @@ fn files(app: &mut App, key: KeyEvent) -> bool {
             app.open_file(app.files_selected);
             app.focus = Focus::Content;
         }
-        KeyCode::Char(' ') => app.open_file(app.files_selected),
+        KeyCode::Char(' ') => {
+            app.open_file(app.files_selected);
+        }
         KeyCode::Esc | KeyCode::Tab => app.focus = Focus::Content,
         _ => return false,
     }
@@ -121,7 +145,35 @@ fn files(app: &mut App, key: KeyEvent) -> bool {
 
 /// TOC-specific keys; returns false when the key should fall through.
 fn toc(app: &mut App, key: KeyEvent) -> bool {
+    if app.toc_filtering {
+        match key.code {
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit = true,
+            KeyCode::Enter => app.toc_filtering = false,
+            KeyCode::Esc => {
+                app.toc_filtering = false;
+                app.toc_filter.clear();
+                app.toc_filter_changed();
+            }
+            KeyCode::Down => app.toc_move(1),
+            KeyCode::Up => app.toc_move(-1),
+            _ => {
+                if app.toc_filter.handle(&key) == Edit::Changed {
+                    app.toc_filter_changed();
+                }
+            }
+        }
+        return true;
+    }
     match key.code {
+        KeyCode::Char('/') => {
+            app.toc_filtering = true;
+            app.toc_filter.clear();
+            app.toc_filter_changed();
+        }
+        KeyCode::Esc if !app.toc_filter.is_empty() => {
+            app.toc_filter.clear();
+            app.toc_filter_changed();
+        }
         KeyCode::Char('j') | KeyCode::Down => app.toc_move(1),
         KeyCode::Char('k') | KeyCode::Up => app.toc_move(-1),
         KeyCode::Char('g') | KeyCode::Home => app.toc_selected = 0,
@@ -232,6 +284,7 @@ pub fn run(app: &mut App, action: Action, count: Option<usize>) {
         Action::Toc => app.toggle_toc(),
         Action::Files => app.toggle_files(),
         Action::Finder => app.open_finder(),
+        Action::Recent => app.open_recent(),
         Action::NextFile => app.step_file(n),
         Action::PrevFile => app.step_file(-n),
         Action::FocusPanel => {
@@ -239,7 +292,11 @@ pub fn run(app: &mut App, action: Action, count: Option<usize>) {
                 app.focus = Focus::Panel;
             }
         }
+        Action::ScrollLeft => app.scroll_horizontal(-8 * n),
+        Action::ScrollRight => app.scroll_horizontal(8 * n),
+        Action::Wrap => app.toggle_wrap(),
         Action::Search => app.start_search(),
+        Action::Grep => app.open_grep(),
         Action::NextMatch => repeat(app, |a| a.next_match(true)),
         Action::PrevMatch => repeat(app, |a| a.next_match(false)),
         Action::NextLink => repeat(app, |a| a.cycle_link(true)),
@@ -269,6 +326,7 @@ pub fn run(app: &mut App, action: Action, count: Option<usize>) {
                 app.notify("Copy code: 1-9 block number, y = block on screen");
             }
         },
+        Action::CopyLink => app.copy_link(),
         Action::Edit => app.open_editor = true,
         Action::Reload => match app.reload() {
             Ok(()) if app.fetch.is_none() => app.notify("Reloaded"),
@@ -323,9 +381,7 @@ pub fn handle_mouse(app: &mut App, m: MouseEvent) {
                     }
                 } else {
                     let row = (m.row - r.y) as usize + app.toc_offset(r.height as usize);
-                    if row < app.rendered.headings.len() {
-                        app.toc_jump(row);
-                    }
+                    app.toc_jump(row);
                 }
             } else if let Some(id) = link_at(app, app.text_rect, pos) {
                 app.follow_link(id);

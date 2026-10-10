@@ -3,6 +3,7 @@
 mod app;
 mod extras;
 mod files_panel;
+mod grep;
 mod images;
 mod input;
 mod keymap;

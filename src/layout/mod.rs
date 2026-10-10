@@ -49,6 +49,9 @@ pub struct Line {
     pub code: Option<usize>,
     /// Image drawn from this line downwards: (url, rows).
     pub image: Option<(String, u16)>,
+    /// Unwrapped code row `│ text │` whose text may exceed this many columns;
+    /// the viewer scrolls it horizontally.
+    pub hscroll: Option<u16>,
 }
 
 impl Line {
@@ -108,6 +111,8 @@ pub struct Options {
     pub front_matter: bool,
     /// Rows reserved for standalone images, by URL (viewer with graphics only).
     pub image_rows: HashMap<String, u16>,
+    /// Wrap long code lines; when false they are kept whole for horizontal scrolling.
+    pub wrap_code: bool,
 }
 
 pub fn layout(doc: &Document, theme: &Theme, opts: &Options) -> Rendered {
@@ -384,6 +389,7 @@ impl Layouter<'_> {
         let diagram = lang
             .filter(|l| l.eq_ignore_ascii_case("mermaid"))
             .and_then(|_| crate::mermaid::render(&code, inner));
+        let is_diagram = diagram.is_some();
         let src_lines: Vec<Vec<Span>> = match diagram {
             Some(lines) => {
                 let w = lines.iter().map(|l| l.width()).max().unwrap_or(0);
@@ -395,7 +401,22 @@ impl Layouter<'_> {
             }
             None => crate::highlight::highlight(&code, lang, t).to_vec(),
         };
-        for src_line in &src_lines {
+        let longest = src_lines.iter().map(|l| wrap::width(l)).max().unwrap_or(0);
+        let unwrapped = !self.opts.wrap_code && !is_diagram && longest > inner;
+        if unwrapped {
+            // Whole rows padded to the longest one; the viewer shows a window.
+            for src_line in &src_lines {
+                let pad = longest - wrap::width(src_line);
+                let mut spans = vec![Span::new("│ ", b)];
+                spans.extend(src_line.iter().cloned());
+                spans.push(Span::new(" ".repeat(pad), t.code_text));
+                spans.push(Span::new(" │", b));
+                let mut line = Line::new(spans);
+                line.hscroll = Some(inner as u16);
+                out.push(line);
+            }
+        }
+        for src_line in src_lines.iter().filter(|_| !unwrapped) {
             // Continuation rows of a wrapped line start with a dim `↪ `
             // (skipped when the box is too narrow to fit it).
             let marker = inner >= 4;

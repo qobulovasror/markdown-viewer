@@ -128,6 +128,7 @@ mdvw -p --width 80 --color always x.md | less -R
 | `--color <when>` | `auto`, `always`, `never` |
 | `--no-hyperlinks` | Disable OSC 8 links |
 | `--no-config` | Ignore the config file |
+| `--recent` | List recently opened files |
 | `--completions <shell>` | Print completions for `bash`, `zsh`, `fish`, `elvish` or `powershell` |
 | `--man` | Print the man page |
 
@@ -144,16 +145,20 @@ mdvw -p --width 80 --color always x.md | less -R
 | `g` `G`, `Home` `End` | Top / bottom |
 | *n* before a key | Repeat it (`5j`, `3]`); `42G` goes to line 42, `50%` to the middle |
 | `]` `[` | Next / previous heading |
-| `t` | Table of contents (`h`/`l` move focus between panel and text) |
+| `t` | Table of contents (`/` filters it, `h`/`l` move focus between panel and text) |
 | `F` | File panel |
 | `}` `{` | Next / previous file in the list or folder |
 | `o`, `Ctrl-p` | Fuzzy find and open a file |
+| `R` | Recently opened files |
+| `S` | Search every file in the list or folder |
 | `/` `n` `N` | Search (regex, smart-case), next / previous match; `↑` `↓` recall earlier searches |
 | `Tab` `Shift-Tab` | Next / previous link |
 | `Enter` | Open the focused link |
 | `O` | Open the focused link in the browser / system app |
 | `Backspace`, `Ctrl-o`, `H` / `L` | Go back / forward |
 | `y` + `1-9`, `yy` | Copy code block *n* / the block on screen |
+| `Y` | Copy the focused link, or a link to the current section |
+| `W`, `←` `→` | Stop wrapping long code lines, then scroll them sideways |
 | `m` + letter, `'` + letter | Set / jump to a bookmark |
 | `e` | Edit in `$EDITOR` at the current heading |
 | `w` | Toggle watch mode |
@@ -187,6 +192,7 @@ hyperlinks = true
 toc = false             # open the table of contents on start
 remember_position = true
 images = true
+wrap_code = true        # false: long code lines scroll sideways (← →) instead of wrapping
 
 [keys]                  # action = key or [keys]; replaces that action's defaults
 quit = ["q", "esc"]

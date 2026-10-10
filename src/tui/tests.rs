@@ -57,6 +57,15 @@ fn send(t: &mut (App, Terminal<TestBackend>), code: KeyCode) {
     draw(t);
 }
 
+fn rows(t: &(App, Terminal<TestBackend>)) -> Vec<String> {
+    let buf = t.1.backend().buffer();
+    let w = buf.area.width as usize;
+    buf.content
+        .chunks(w)
+        .map(|r| r.iter().map(|c| c.symbol()).collect())
+        .collect()
+}
+
 fn screen(t: &(App, Terminal<TestBackend>)) -> String {
     let buf = t.1.backend().buffer();
     buf.content.iter().map(|c| c.symbol()).collect()
@@ -264,4 +273,142 @@ fn links_in_web_documents_resolve_against_their_url() {
     // `F` and `}` have no folder to list for a web document.
     press(&mut t, "}");
     assert_eq!(t.0.message(), Some("No file list for a web document"));
+}
+
+#[test]
+fn long_code_lines_scroll_sideways() {
+    let long: String = (0..60).map(|i| format!("{i:02} ")).collect();
+    let text = format!("```\n{long}\nshort\n```\n");
+    let mut t = app_with(Config::default(), &text);
+    let wrapped = t.0.rendered.lines.len();
+    press(&mut t, "l");
+    send(&mut t, KeyCode::Right);
+    assert!(t.0.message().unwrap().contains("press W"));
+    press(&mut t, "W");
+    assert!(t.0.rendered.lines.len() < wrapped);
+    assert!(screen(&t).contains("│ 00 01 02"));
+    press(&mut t, "3>");
+    assert_eq!(t.0.hscroll, 24);
+    let s = screen(&t);
+    assert!(s.contains("│ 08 09") && !s.contains("│ 00 01"));
+    // Borders stay put: both code rows keep their closing `│` in one column.
+    let ends: Vec<usize> = rows(&t)
+        .iter()
+        .filter(|r| r.contains("│ 08") || r.contains("│     "))
+        .map(|r| r.trim_end().chars().count())
+        .collect();
+    assert_eq!(ends.len(), 2);
+    assert_eq!(ends[0], ends[1]);
+    press(&mut t, "100>");
+    assert_eq!(t.0.hscroll, t.0.hscroll_max);
+    send(&mut t, KeyCode::Left);
+    assert_eq!(t.0.hscroll, t.0.hscroll_max - 8);
+}
+
+#[test]
+fn toc_filter_narrows_headings() {
+    let filler = "text\n\n".repeat(30);
+    let text = format!("# Install\n\n{filler}# Usage\n\n{filler}## Install on Linux\n\n{filler}");
+    let mut t = app_with(Config::default(), &text);
+    press(&mut t, "t/inst");
+    assert_eq!(t.0.toc_entries(), vec![0, 2]);
+    assert!(screen(&t).contains("Contents /inst"));
+    send(&mut t, KeyCode::Down);
+    send(&mut t, KeyCode::Enter);
+    assert!(!t.0.toc_filtering);
+    send(&mut t, KeyCode::Enter);
+    assert_eq!(t.0.current_heading(), Some(2));
+    // Back in the panel, Esc clears the filter first.
+    press(&mut t, "h");
+    send(&mut t, KeyCode::Esc);
+    assert_eq!(t.0.toc_entries().len(), 3);
+    press(&mut t, "/zzz");
+    assert!(screen(&t).contains("no matching headings"));
+}
+
+#[test]
+fn folder_search_opens_the_hit() {
+    let dir = std::env::temp_dir().join(format!("mdvw-grep-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.md"), "# A\n\nnothing here\n").unwrap();
+    let filler = "x\n\n".repeat(40);
+    std::fs::write(
+        dir.join("b.md"),
+        format!("# B\n\nneedle one\n\n{filler}needle two\n"),
+    )
+    .unwrap();
+    let cfg = Config {
+        remember_position: false,
+        ..Config::default()
+    };
+    let src = Source::from_file(&dir.join("a.md")).unwrap();
+    let mut t = (
+        App::new(src, Theme::default_dark(), ColorDepth::None, &cfg),
+        Terminal::new(TestBackend::new(80, 24)).unwrap(),
+    );
+    draw(&mut t);
+    press(&mut t, "Sneedle");
+    assert_eq!(t.0.mode, Mode::Grep);
+    send(&mut t, KeyCode::Enter);
+    assert_eq!(t.0.grep.hits.len(), 2);
+    assert!(screen(&t).contains("b.md:3: needle one"));
+    send(&mut t, KeyCode::Down);
+    send(&mut t, KeyCode::Enter);
+    assert_eq!(t.0.mode, Mode::Normal);
+    assert_eq!(t.0.source.name(), "b.md");
+    assert_eq!(t.0.search.current, Some(1));
+    assert!(t.0.scroll > 10);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn recent_files_open_from_the_finder() {
+    let mut t = app();
+    press(&mut t, "R");
+    assert_eq!(
+        t.0.message(),
+        Some("No recent files (remember_position is off)")
+    );
+    let dir = std::env::temp_dir().join(format!("mdvw-recent-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let a = dir.join("a.md");
+    std::fs::write(&a, "# recent a\n").unwrap();
+    t.0.state.entry(&a);
+    t.0.state.entry(&dir.join("gone.md"));
+    press(&mut t, "R");
+    assert_eq!(t.0.mode, Mode::Finder);
+    assert!(screen(&t).contains("Recent files"));
+    assert_eq!(t.0.finder_items().len(), 1);
+    send(&mut t, KeyCode::Enter);
+    assert_eq!(t.0.source.name(), "a.md");
+    assert!(t.0.finder.recent.is_none());
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn shifted_rows_with_emoji_keep_the_border() {
+    let long: String = (0..30).map(|i| format!("❤️{i:02} ")).collect();
+    let text = format!("```\n{long}\nplain\n```\n");
+    let mut t = app_with(Config::default(), &text);
+    press(&mut t, "W3>");
+    // Column of the closing `│` on the two code rows, by cell index.
+    let buf = t.1.backend().buffer();
+    let ends: Vec<usize> = buf
+        .content
+        .chunks(80)
+        .filter(|r| r.iter().take(4).any(|c| c.symbol() == "│"))
+        .filter_map(|r| r.iter().rposition(|c| c.symbol() == "│"))
+        .collect();
+    assert_eq!(ends.len(), 2, "{:?}", rows(&t));
+    assert_eq!(ends[0], ends[1], "{:?}", rows(&t));
+}
+
+#[test]
+fn search_scrolls_code_sideways_to_the_match() {
+    let long = format!("{}needle", "x ".repeat(80));
+    let mut t = app_with(Config::default(), &format!("```\n{long}\n```\n"));
+    press(&mut t, "W/needle");
+    send(&mut t, KeyCode::Enter);
+    assert!(t.0.hscroll > 0);
+    assert!(screen(&t).contains("needle"));
 }

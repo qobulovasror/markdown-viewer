@@ -82,6 +82,18 @@ impl State {
         std::fs::rename(tmp, path)
     }
 
+    /// Existing files by last visit, newest first.
+    pub fn recent(&self) -> Vec<PathBuf> {
+        let mut files: Vec<(&PathBuf, u64)> = self
+            .files
+            .iter()
+            .filter(|(p, _)| p.is_file())
+            .map(|(p, f)| (p, f.seen))
+            .collect();
+        files.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+        files.into_iter().map(|(p, _)| p.clone()).collect()
+    }
+
     pub fn get(&self, path: &Path) -> Option<&FileState> {
         self.files.get(&key(path))
     }

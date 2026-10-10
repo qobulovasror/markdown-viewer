@@ -8,7 +8,9 @@ use crate::files;
 #[derive(Debug, Default)]
 pub struct Finder {
     pub input: super::input::LineInput,
-    /// Indices into `App::files`, best match first.
+    /// Recently opened files, when the finder lists those instead of `App::files`.
+    pub recent: Option<Vec<PathBuf>>,
+    /// Indices into the listed paths, best match first.
     pub results: Vec<usize>,
     pub selected: usize,
 }
@@ -60,7 +62,7 @@ impl App {
     }
 
     /// Scans the current file's directory if no root is known yet.
-    fn ensure_files(&mut self) -> bool {
+    pub(super) fn ensure_files(&mut self) -> bool {
         if self.root.is_none() && self.source.url.is_some() {
             self.notify("No file list for a web document");
             return false;
@@ -124,21 +126,26 @@ impl App {
         self.files.iter().position(|f| f == rel)
     }
 
-    pub fn open_file(&mut self, idx: usize) {
+    /// Shows file `idx` of the list; false if it could not be read.
+    pub fn open_file(&mut self, idx: usize) -> bool {
         let (Some(root), Some(rel)) = (self.root.clone(), self.files.get(idx).cloned()) else {
-            return;
+            return false;
         };
         self.files_selected = idx;
         if self.current_file() == Some(idx) {
-            return;
+            return true;
         }
         let path = root.join(&rel);
         match Source::from_file(&path) {
             Ok(src) => {
                 self.open_source(src);
                 self.notify(format!("Opened {}", rel.display()));
+                true
             }
-            Err(e) => self.notify(format!("{e:#}")),
+            Err(e) => {
+                self.notify(format!("{e:#}"));
+                false
+            }
         }
     }
 
@@ -147,12 +154,45 @@ impl App {
             return;
         }
         self.mode = Mode::Finder;
+        self.finder.recent = None;
         self.finder.input.clear();
         self.finder_update();
     }
 
+    /// Fuzzy finder over recently opened files.
+    pub fn open_recent(&mut self) {
+        let current = self
+            .source
+            .path
+            .as_deref()
+            .and_then(|p| p.canonicalize().ok());
+        let recent: Vec<PathBuf> = self
+            .state
+            .recent()
+            .into_iter()
+            .filter(|p| Some(p) != current.as_ref())
+            .collect();
+        if recent.is_empty() {
+            self.notify(if self.remember {
+                "No recent files"
+            } else {
+                "No recent files (remember_position is off)"
+            });
+            return;
+        }
+        self.mode = Mode::Finder;
+        self.finder.recent = Some(recent);
+        self.finder.input.clear();
+        self.finder_update();
+    }
+
+    /// Paths the finder lists.
+    pub fn finder_items(&self) -> &[PathBuf] {
+        self.finder.recent.as_deref().unwrap_or(&self.files)
+    }
+
     pub fn finder_update(&mut self) {
-        self.finder.results = files::fuzzy(&self.files, &self.finder.input.text);
+        self.finder.results = files::fuzzy(self.finder_items(), &self.finder.input.text);
         self.finder.selected = 0;
     }
 
@@ -165,8 +205,20 @@ impl App {
 
     pub fn finder_open(&mut self) {
         self.mode = Mode::Normal;
-        if let Some(&idx) = self.finder.results.get(self.finder.selected) {
-            self.open_file(idx);
+        let Some(&idx) = self.finder.results.get(self.finder.selected) else {
+            return;
+        };
+        match self.finder.recent.take() {
+            Some(recent) => match Source::from_file(&recent[idx]) {
+                Ok(src) => {
+                    self.open_source(src);
+                    self.notify(format!("Opened {}", recent[idx].display()));
+                }
+                Err(e) => self.notify(format!("{e:#}")),
+            },
+            None => {
+                self.open_file(idx);
+            }
         }
     }
 }

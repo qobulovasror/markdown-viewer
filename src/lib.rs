@@ -45,6 +45,7 @@ pub fn render_to_string(src: &str, format: Format, opts: &PrintOptions) -> Strin
             code_numbers: false,
             front_matter: true,
             image_rows: Default::default(),
+            wrap_code: true,
         },
     );
     render::ansi::render(
