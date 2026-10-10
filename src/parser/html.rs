@@ -1,6 +1,6 @@
 //! Minimal HTML fragment handling: keeps text, images, links and line breaks.
 
-use super::ast::Inline;
+use super::ast::{Align, Block, Inline};
 
 /// Converts an HTML fragment into inline content.
 pub fn to_inlines(html: &str) -> Vec<Inline> {
@@ -107,6 +107,124 @@ fn push_text(text: &str, link: &mut Option<(String, Vec<Inline>)>, out: &mut Vec
         Some((_, content)) => content.push(Inline::Text(s)),
         None => out.push(Inline::Text(s)),
     }
+}
+
+/// A simple HTML `<table>` (rows of `<th>`/`<td>`) as a table block.
+/// The first row is the header; `align` / `text-align` of its cells set alignment.
+pub fn to_table(html: &str) -> Option<Block> {
+    let lower = html.to_ascii_lowercase();
+    let start = lower.find("<table")?;
+    let end = lower[start..]
+        .find("</table")
+        .map_or(html.len(), |e| start + e);
+    // Only a block that is just the table; text around it would be lost.
+    let after = lower[end..].find('>').map_or(html.len(), |i| end + i + 1);
+    let outside = format!("{}{}", &html[..start], &html[after..]);
+    if !super::ast::plain_text(&to_inlines(&outside))
+        .trim()
+        .is_empty()
+    {
+        return None;
+    }
+    let mut rows: Vec<Vec<(String, String)>> = Vec::new();
+    for row in split_tags(&lower, html, start, end, &["<tr"], &["</tr"]) {
+        let (rs, re) = row;
+        let cells = split_tags(&lower, html, rs, re, &["<td", "<th"], &["</td", "</th"])
+            .into_iter()
+            .map(|(cs, ce)| {
+                // The opening tag (for attributes) and the cell's inner HTML.
+                let open_end = html[cs..ce].find('>').map_or(ce, |i| cs + i + 1);
+                (
+                    html[cs..open_end].to_string(),
+                    html[open_end..ce].to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
+        if !cells.is_empty() {
+            rows.push(cells);
+        }
+    }
+    if rows.is_empty() {
+        return None;
+    }
+    let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let aligns = (0..cols)
+        .map(|i| {
+            let tag = rows[0].get(i).map_or("", |(t, _)| t.as_str());
+            let style = attr(tag, "style").unwrap_or_default().to_ascii_lowercase();
+            let align = attr(tag, "align").unwrap_or_default().to_ascii_lowercase();
+            let pick = |k: &str| {
+                align == k
+                    || style.contains(&format!("text-align:{k}"))
+                    || style.contains(&format!("text-align: {k}"))
+            };
+            if pick("right") {
+                Align::Right
+            } else if pick("center") {
+                Align::Center
+            } else if pick("left") {
+                Align::Left
+            } else {
+                Align::None
+            }
+        })
+        .collect();
+    let mut cells = rows.into_iter().map(|r| {
+        let mut out: Vec<Vec<Inline>> = r.iter().map(|(_, inner)| to_inlines(inner)).collect();
+        out.resize(cols, Vec::new());
+        out
+    });
+    let header = cells.next()?;
+    Some(Block::Table {
+        aligns,
+        header,
+        rows: cells.collect(),
+    })
+}
+
+/// Byte ranges from each opening tag (any of `opens`) to its close, the next
+/// opening tag, or `end`, searching the lowercased copy.
+fn split_tags(
+    lower: &str,
+    html: &str,
+    from: usize,
+    end: usize,
+    opens: &[&str],
+    closes: &[&str],
+) -> Vec<(usize, usize)> {
+    let find_any = |at: usize, pats: &[&str]| -> Option<usize> {
+        pats.iter()
+            .filter_map(|p| {
+                let mut i = at;
+                // `<th` must not match `<thead`.
+                while let Some(k) = lower[i..end].find(p) {
+                    let pos = i + k;
+                    let next = lower.as_bytes().get(pos + p.len()).copied();
+                    if matches!(next, Some(b'>' | b' ' | b'\t' | b'\n' | b'\r' | b'/')) {
+                        return Some(pos);
+                    }
+                    i = pos + p.len();
+                }
+                None
+            })
+            .min()
+    };
+    let mut out = Vec::new();
+    let mut at = from;
+    while at < end {
+        let Some(s) = find_any(at, opens) else {
+            break;
+        };
+        let after = s + 1;
+        let stop = [find_any(after, closes), find_any(after, opens)]
+            .into_iter()
+            .flatten()
+            .min()
+            .unwrap_or(end);
+        out.push((s, stop.min(html.len())));
+        at = stop.max(after);
+    }
+    out
 }
 
 fn attr(tag: &str, name: &str) -> Option<String> {

@@ -24,6 +24,14 @@ fn themes() -> &'static ThemeSet {
     SET.get_or_init(ThemeSet::load_defaults)
 }
 
+/// Highlighted `<pre>` HTML with inline styles, or `None` for unknown languages.
+pub fn to_html(code: &str, lang: Option<&str>, theme: &Theme) -> Option<String> {
+    let set = syntaxes();
+    let syntax = find_syntax(set, lang, code)?;
+    let st = themes().themes.get(theme.syntax)?;
+    syntect::html::highlighted_html_for_string(code, set, syntax, st).ok()
+}
+
 pub fn has_theme(name: &str) -> bool {
     themes().themes.contains_key(name)
 }

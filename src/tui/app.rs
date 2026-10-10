@@ -58,6 +58,17 @@ impl Source {
         anyhow::bail!("cannot open {input}: mdvw was built without the `remote` feature")
     }
 
+    /// Parses the text, with AsciiDoc / RST includes expanded for local files.
+    pub fn parse(&self) -> Document {
+        match &self.path {
+            Some(p) => parser::parse(
+                &parser::expand_includes(&self.text, self.format, p),
+                self.format,
+            ),
+            None => parser::parse(&self.text, self.format),
+        }
+    }
+
     pub fn name(&self) -> String {
         match (&self.path, &self.url) {
             (Some(p), _) => p
@@ -186,6 +197,8 @@ pub struct App {
     pub hscroll: usize,
     /// Largest useful `hscroll` for the current layout.
     pub(super) hscroll_max: usize,
+    /// `Line::text()` of every rendered line, so typing a search stays fast.
+    line_texts: Vec<String>,
     /// Screen areas from the last draw, for mouse hit-testing.
     pub text_rect: ratatui::layout::Rect,
     pub panel_rect: Option<ratatui::layout::Rect>,
@@ -220,7 +233,7 @@ pub struct App {
 
 impl App {
     pub fn new(source: Source, theme: Theme, depth: ColorDepth, cfg: &Config) -> App {
-        let doc = parser::parse(&source.text, source.format);
+        let doc = source.parse();
         let words = count_words(&source.text);
         let state = if cfg.remember_position {
             State::load()
@@ -264,6 +277,7 @@ impl App {
             wrap_code: cfg.wrap_code,
             hscroll: 0,
             hscroll_max: 0,
+            line_texts: Vec::new(),
             text_rect: Default::default(),
             panel_rect: None,
             root: None,
@@ -335,6 +349,7 @@ impl App {
             },
         );
         self.link_refs = collect_link_refs(&self.rendered);
+        self.line_texts = self.rendered.lines.iter().map(|l| l.text()).collect();
         self.hscroll_max = self
             .rendered
             .lines
@@ -401,7 +416,7 @@ impl App {
     }
 
     fn reparse(&mut self) {
-        self.doc = parser::parse(&self.source.text, self.source.format);
+        self.doc = self.source.parse();
         self.words = count_words(&self.source.text);
     }
 
@@ -767,7 +782,7 @@ impl App {
 
     fn refresh_search(&mut self) {
         self.search.matches = match search::compile(&self.search.query) {
-            Some(re) => search::find_all(&self.rendered.lines, &re),
+            Some(re) => search::find_in_texts(&self.line_texts, &re),
             None => Vec::new(),
         };
         let n = self.search.matches.len();

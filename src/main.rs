@@ -9,6 +9,11 @@ use mdvw::theme::{self, Theme};
 use mdvw::{config, files, parser, tui};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
+enum ExportFormat {
+    Html,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
 enum ColorChoice {
     Auto,
     Always,
@@ -56,6 +61,15 @@ struct Cli {
     /// Input format (default: from file extension, Markdown for stdin).
     #[arg(short, long, value_parser = clap::builder::PossibleValuesParser::new(parser::FORMAT_NAMES))]
     format: Option<String>,
+
+    /// Write a standalone HTML page to stdout instead of viewing.
+    #[arg(long, value_name = "FORMAT", value_enum)]
+    export: Option<ExportFormat>,
+
+    /// Show only the section under this heading (title or anchor); the viewer
+    /// opens at it.
+    #[arg(long, value_name = "HEADING")]
+    section: Option<String>,
 
     /// List recently opened files, newest first.
     #[arg(long, exclusive = true)]
@@ -111,7 +125,7 @@ fn run() -> Result<()> {
         cfg.warnings
             .push("remote_images needs a build with the `remote` feature".into());
     }
-    let viewer = std::io::stdout().is_terminal() && !cli.print;
+    let viewer = std::io::stdout().is_terminal() && !cli.print && cli.export.is_none();
     let inputs = load_inputs(&cli.paths, format, viewer)?;
 
     let stdout = std::io::stdout();
@@ -121,7 +135,18 @@ fn run() -> Result<()> {
         None if tty && std::io::stdin().is_terminal() => theme::auto(),
         None => Theme::default_dark(),
     };
-    if tty && !cli.print {
+    if let Some(ExportFormat::Html) = cli.export {
+        if inputs.sources.len() > 1 {
+            bail!("--export takes one document at a time");
+        }
+        let src = &inputs.sources[0];
+        let doc = select_section(src.parse(), cli.section.as_deref())?;
+        let title = mdvw::export::title(&doc, &src.name());
+        // Light/dark CSS is built in; code colors follow the chosen theme.
+        let html = mdvw::export::to_html(&doc, &title, &theme);
+        return write_stdout(&html);
+    }
+    if viewer {
         let depth = match cli.color {
             ColorChoice::Never => ColorDepth::None,
             _ => ColorDepth::detect(),
@@ -147,7 +172,12 @@ fn run() -> Result<()> {
             app.set_file_list(files);
             app.notify(format!("1 of {n} files: }} next, {{ previous, F list"));
         }
-        if let Some(a) = anchor {
+        // --section uses the same heading matching as print mode.
+        let section = cli
+            .section
+            .as_deref()
+            .map(|name| parser::section_id(&app.doc, name).unwrap_or_else(|| name.to_string()));
+        if let Some(a) = section.or(anchor) {
             app.start_at_anchor(a);
         }
         return tui::run(
@@ -189,9 +219,21 @@ fn run() -> Result<()> {
             let sep = if i > 0 { "\n" } else { "" };
             text.push_str(&format!("{sep}==> {} <==\n\n", src.location()));
         }
-        text.push_str(&mdvw::render_to_string(&src.text, src.format, &opts));
+        let doc = select_section(src.parse(), cli.section.as_deref())?;
+        text.push_str(&mdvw::render_document(&doc, &opts));
     }
-    let mut lock = stdout.lock();
+    write_stdout(&text)
+}
+
+fn select_section(doc: parser::Document, name: Option<&str>) -> Result<parser::Document> {
+    match name {
+        Some(n) => parser::section(&doc, n).with_context(|| format!("no section '{n}'")),
+        None => Ok(doc),
+    }
+}
+
+fn write_stdout(text: &str) -> Result<()> {
+    let mut lock = std::io::stdout().lock();
     if let Err(e) = lock.write_all(text.as_bytes()).and_then(|_| lock.flush())
         && e.kind() != std::io::ErrorKind::BrokenPipe
     {

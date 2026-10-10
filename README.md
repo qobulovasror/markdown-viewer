@@ -29,19 +29,23 @@ mdvw -p x.md | less -R
 
 ## Why mdvw?
 
-| | mdvw | glow | mdcat | bat |
-|---|:-:|:-:|:-:|:-:|
-| Rendered Markdown | ✅ | ✅ | ✅ | ❌ source only |
-| Interactive full-screen viewer | ✅ | ✅ | ❌ | ❌ |
-| Table of contents panel | ✅ | ❌ | ❌ | ❌ |
-| Follow links between local documents | ✅ | ❌ | ❌ | ❌ |
-| Live reload on file change | ✅ | ❌ | ❌ | ❌ |
-| Inline images (Kitty / iTerm2 / Sixel) | ✅ | ❌ | ✅ | ❌ |
-| Org, AsciiDoc, reStructuredText | ✅ | ❌ | ❌ | ❌ source only |
-| Directory browsing | ✅ | ✅ | ❌ | ❌ |
-| Syntax-highlighted code blocks | ✅ | ✅ | ✅ | ✅ |
+| | mdvw | glow | frogmouth | mdcat | bat |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Rendered Markdown | ✅ | ✅ | ✅ | ✅ | ❌ source only |
+| Interactive full-screen viewer | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Table of contents panel | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Follow links between local documents | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Documents from the web / GitHub repos | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Search across a folder | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Inline images (Kitty / iTerm2 / Sixel) | ✅ | ❌ | ❌ | ✅ | ❌ |
+| Org, AsciiDoc, reStructuredText | ✅ | ❌ | ❌ | ❌ | ❌ source only |
+| Mermaid diagrams as text | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Custom themes | ✅ | ✅ | ❌ | ❌ | ✅ |
+| HTML export | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Directory browsing | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Syntax-highlighted code blocks | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-<sub>Comparison as of 2026, based on each tool's default features.</sub>
+<sub>Comparison as of 2026, based on each tool's documented default features; corrections are welcome.</sub>
 
 ## Features
 
@@ -59,8 +63,13 @@ mdvw -p x.md | less -R
   `github.com/.../tree/<branch>` URLs.
 - **Images** appear inline on Kitty, iTerm2, WezTerm, Ghostty and other graphics-capable terminals.
   Other terminals show `[🖼 alt]`.
-- **Mermaid** flowcharts and sequence diagrams are drawn as box art in the terminal. Wide
-  left-to-right charts switch to top-down when space is short. Other diagram types show their source.
+- **Mermaid** flowcharts and sequence diagrams (with `loop`/`alt`/`opt` frames) are drawn as box
+  art in the terminal. Wide left-to-right charts switch to top-down when space is short. Other
+  diagram types show their source.
+- **HTML tables** (`<table>`) are drawn like Markdown tables. AsciiDoc `include::` and RST
+  `.. include::` pull in files from the document's folder (and below), so a document saved in a
+  folder with private files can show them; mind this before exporting untrusted documents.
+- **Export**: `mdvw --export html notes.md > notes.html` writes a standalone, script-free page.
 - **Math**: `$\sum_{i=1}^n x_i^2$` renders as `∑ᵢ₌₁ⁿ xᵢ²`. Also **emoji** shortcodes (`:rocket:` → 🚀)
   and common inline HTML (`<kbd>`, `<sup>`, `<img>`, `<a>`).
 - **Viewer**: vim/less keys, regex search, link navigation with history, bookmarks, copy a code block,
@@ -107,6 +116,8 @@ mdvw -p README.md                    # print rendered output
 mdvw -w notes.md                     # reload when the file changes
 mdvw README.md#install               # open at a heading
 mdvw a.md b.md c.md                  # several files: } next, { previous
+mdvw -p --section Install README.md  # just one section
+mdvw --export html x.md > x.html     # standalone HTML page
 mdvw https://example.com/notes.md    # a document on the web
 mdvw gh:owner/repo                   # GitHub README (also github.com/owner/repo/...)
 mdvw gh:owner/repo/docs/guide.md     # a file in a GitHub repository
@@ -130,6 +141,8 @@ mdvw -p --width 80 --color always x.md | less -R
 | `--no-hyperlinks` | Disable OSC 8 links |
 | `--no-config` | Ignore the config file |
 | `--recent` | List recently opened files |
+| `--section <heading>` | Print only that section (the viewer opens at it) |
+| `--export html` | Write a standalone HTML page to stdout |
 | `--completions <shell>` | Print completions for `bash`, `zsh`, `fish`, `elvish` or `powershell` |
 | `--man` | Print the man page |
 

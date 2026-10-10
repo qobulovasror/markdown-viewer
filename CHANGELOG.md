@@ -32,8 +32,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   usable with `--theme`, the config file and `T`.
 - `remote_images = true` downloads web images, including those of web documents.
 - In directory mode, watch (`w`) also keeps the file list up to date.
+- `--export html` writes a standalone HTML page (highlighted code, Mermaid as text; raw HTML and
+  script links are left out).
+- `--section <heading>` prints only that section; the viewer opens at it.
+- Mermaid sequence diagrams draw `loop`/`alt`/`opt`/`par`/`critical`/`break`/`rect` frames.
+- HTML `<table>` blocks render as tables.
+- AsciiDoc `include::` and RST `.. include::` (files inside the document's folder only).
 
 ### Fixed
+- Typing a search no longer re-collects the text of every line on each key.
 - `e` opens the editor at the current heading in every format (setext, Org, AsciiDoc, RST), and
   passes the line the way VS Code, Zed, Sublime and Kate expect.
 - Key bindings can be changed with a `[keys]` table in the config file.
