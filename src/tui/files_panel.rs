@@ -18,10 +18,38 @@ pub struct Finder {
 impl App {
     /// Enables directory mode with the given root and its documents.
     pub fn set_root(&mut self, root: PathBuf, files: Vec<PathBuf>) {
+        self.set_root_inner(root, files, true);
+    }
+
+    fn set_root_inner(&mut self, root: PathBuf, files: Vec<PathBuf>, scanned: bool) {
         // Canonical root so relative/absolute document paths compare equal.
         self.root = Some(root.canonicalize().unwrap_or(root));
         self.files = files;
         self.files_selected = self.current_file().unwrap_or(0);
+        self.scanned = scanned;
+        self.rewatch_folder();
+    }
+
+    /// Re-reads the folder after documents were added or removed.
+    pub(super) fn rescan_files(&mut self) {
+        let Some(root) = self.root.clone().filter(|_| self.scanned) else {
+            return;
+        };
+        let selected = self.files.get(self.files_selected).cloned();
+        self.files = files::scan(&root);
+        // Keep the panel cursor where the user left it.
+        self.files_selected = selected
+            .and_then(|s| self.files.iter().position(|f| *f == s))
+            .or_else(|| self.current_file())
+            .unwrap_or(0)
+            .min(self.files.len().saturating_sub(1));
+        if self.mode == Mode::Finder && self.finder.recent.is_none() {
+            self.finder_update();
+        }
+        self.notify(format!(
+            "File list updated ({} documents)",
+            self.files.len()
+        ));
     }
 
     /// Uses the files named on the command line as the file list.
@@ -39,7 +67,7 @@ impl App {
                 list.push(rel);
             }
         }
-        self.set_root(root, list);
+        self.set_root_inner(root, list, false);
     }
 
     /// Opens the file `delta` places away in the list (wrapping around).

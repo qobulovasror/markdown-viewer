@@ -412,3 +412,27 @@ fn search_scrolls_code_sideways_to_the_match() {
     assert!(t.0.hscroll > 0);
     assert!(screen(&t).contains("needle"));
 }
+
+#[test]
+fn folder_rescan_keeps_the_current_file() {
+    let dir = std::env::temp_dir().join(format!("mdvw-rescan-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("b.md"), "# b\n").unwrap();
+    let cfg = Config {
+        remember_position: false,
+        ..Config::default()
+    };
+    let src = Source::from_file(&dir.join("b.md")).unwrap();
+    let mut app = App::new(src, Theme::default_dark(), ColorDepth::None, &cfg);
+    app.set_root(dir.clone(), crate::files::scan(&dir));
+    std::fs::write(dir.join("a.md"), "# a\n").unwrap();
+    app.rescan_files();
+    assert_eq!(app.files.len(), 2);
+    assert_eq!(app.files_selected, 1);
+    assert_eq!(app.current_file(), Some(1));
+    // An explicit file list is not replaced by a scan.
+    app.set_file_list(vec![dir.join("b.md")]);
+    app.rescan_files();
+    assert_eq!(app.files.len(), 1);
+    std::fs::remove_dir_all(dir).ok();
+}

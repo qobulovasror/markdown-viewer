@@ -16,6 +16,15 @@ const SKIP_DIRS: &[&str] = &[
     "__pycache__",
 ];
 const MAX_FILES: usize = 5000;
+
+/// True for paths (relative to the scanned root) that `scan` never lists:
+/// hidden entries and skipped folders such as `target` or `node_modules`.
+pub fn is_ignored(rel: &Path) -> bool {
+    rel.components().any(|c| {
+        let name = c.as_os_str().to_string_lossy();
+        name.starts_with('.') || SKIP_DIRS.contains(&name.as_ref())
+    })
+}
 const MAX_DEPTH: usize = 8;
 
 /// Viewable documents under `root`, as paths relative to it, sorted.

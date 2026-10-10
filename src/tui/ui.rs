@@ -388,15 +388,16 @@ fn draw_images(f: &mut Frame, app: &mut App, text: Rect, end: usize) {
             (n + rows as usize <= end).then_some((n, url, rows))
         })
         .collect();
-    let base = app.source.path.clone();
+    // Disjoint field borrows: no copy of the document text per frame.
+    let (src, scroll) = (&app.source, app.scroll);
     let Some(images) = app.images.as_mut() else {
         return;
     };
     for (n, url, rows) in slots {
-        let Some(proto) = images.protocol(&url, base.as_deref()) else {
+        let Some(proto) = images.protocol(&url, src) else {
             continue;
         };
-        let area = Rect::new(text.x, text.y + (n - app.scroll) as u16, text.width, rows);
+        let area = Rect::new(text.x, text.y + (n - scroll) as u16, text.width, rows);
         f.render_widget(Clear, area);
         f.render_stateful_widget(ratatui_image::StatefulImage::default(), area, proto);
     }

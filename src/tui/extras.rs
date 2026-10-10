@@ -5,6 +5,7 @@ use std::process::Command;
 use super::app::App;
 use crate::clipboard;
 use crate::links::Target;
+use crate::parser::Format;
 use crate::state::Position;
 use crate::watch::FileWatcher;
 
@@ -137,10 +138,26 @@ impl App {
 
     pub fn toggle_watch(&mut self) {
         if self.watcher.take().is_some() {
+            self.folder_watcher = None;
             self.notify("Watch off");
             return;
         }
         self.start_watch();
+        self.rewatch_folder();
+    }
+
+    /// Follows the folder in directory mode while watch is on.
+    pub(super) fn rewatch_folder(&mut self) {
+        self.folder_watcher = None;
+        if self.watcher.is_none() || !self.scanned {
+            return;
+        }
+        if let Some(root) = self.root.clone() {
+            match FileWatcher::folder(&root) {
+                Ok(w) => self.folder_watcher = Some(w),
+                Err(e) => self.notify(format!("{e:#}")),
+            }
+        }
     }
 
     fn start_watch(&mut self) {
@@ -180,30 +197,14 @@ impl App {
         let Some(h) = self.current_heading() else {
             return 1;
         };
-        let title = &self.rendered.headings[h].title;
+        let key = letters(&self.rendered.headings[h].title);
         let nth = self.rendered.headings[..h]
             .iter()
-            .filter(|e| &e.title == title)
+            .filter(|e| letters(&e.title) == key)
             .count();
-        let mut in_fence = false;
-        self.source
-            .text
-            .lines()
-            .enumerate()
-            .filter(|(_, l)| {
-                let t = l.trim_start();
-                if t.starts_with("```") || t.starts_with("~~~") {
-                    in_fence = !in_fence;
-                    return false;
-                }
-                !in_fence
-                    && t.starts_with('#')
-                    && t.trim_start_matches('#')
-                        .trim()
-                        .trim_end_matches('#')
-                        .trim()
-                        == title
-            })
+        heading_candidates(&self.source.text, self.source.format)
+            .into_iter()
+            .filter(|(_, k)| *k == key)
             .nth(nth)
             .map_or(1, |(i, _)| i + 1)
     }
@@ -224,21 +225,141 @@ impl App {
         let mut cmd = Command::new(program);
         cmd.args(parts);
         let name = std::path::Path::new(program)
-            .file_name()
+            .file_stem()
             .and_then(|n| n.to_str())
             .unwrap_or("");
-        if matches!(
-            name,
-            "vi" | "vim" | "nvim" | "nano" | "hx" | "emacs" | "micro" | "kak"
-        ) {
-            cmd.arg(format!("+{}", self.source_line()));
-        }
-        match cmd.arg(&path).status() {
+        cmd.args(editor_args(name, &path, self.source_line()));
+        match cmd.status() {
             Ok(_) => match self.reload() {
                 Ok(()) => self.notify("Reloaded after editing"),
                 Err(e) => self.notify(format!("Reload failed: {e:#}")),
             },
             Err(e) => self.notify(format!("Cannot run {program}: {e}")),
         }
+    }
+}
+
+/// Arguments that open `path` at `line` in a known editor (else just the path).
+fn editor_args(editor: &str, path: &std::path::Path, line: usize) -> Vec<std::ffi::OsString> {
+    let file = path.as_os_str().to_owned();
+    let mut at = file.clone();
+    at.push(format!(":{line}"));
+    match editor.to_ascii_lowercase().as_str() {
+        "vi" | "vim" | "nvim" | "gvim" | "nano" | "hx" | "helix" | "emacs" | "emacsclient"
+        | "micro" | "kak" | "gedit" | "joe" | "mg" | "ne" | "vis" | "jed" => {
+            vec![format!("+{line}").into(), file]
+        }
+        "code" | "code-insiders" | "codium" | "cursor" | "windsurf" => vec!["-g".into(), at],
+        "subl" | "sublime_text" | "zed" | "zeditor" => vec![at],
+        "kate" => vec!["-l".into(), line.to_string().into(), file],
+        _ => vec![file],
+    }
+}
+
+/// Lowercase letters and digits: heading markup (`#`, `*`, `=`, emphasis) drops out.
+fn letters(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// A line of one repeated punctuation character (setext / RST underline).
+fn is_rule(line: &str) -> bool {
+    let t = line.trim();
+    let mut chars = t.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_punctuation() && t.len() >= 2 && chars.all(|d| d == c))
+}
+
+/// Source lines (0-based) that look like headings in `format`, with their
+/// letters; code blocks are skipped.
+fn heading_candidates(text: &str, format: Format) -> Vec<(usize, String)> {
+    let (fences, prefixes, underlines): (&[&str], &[&str], bool) = match format {
+        Format::Markdown => (&["```", "~~~"], &["#", "<h"], true),
+        Format::Org => (&["#+begin_", "#+end_"], &["*"], false),
+        Format::AsciiDoc => (&["----", "....", "```"], &["=", "#"], false),
+        Format::Rst => (&[], &[], true),
+        Format::Text => (&[], &[], false),
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    let mut fence: Option<&str> = None;
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim_start();
+        let lower = t.to_ascii_lowercase();
+        let marker = fences.iter().copied().find(|m| lower.starts_with(m));
+        match (fence, marker) {
+            (None, Some(m)) if m != "#+end_" => {
+                fence = Some(m);
+                continue;
+            }
+            (Some(f), Some(m)) if f == m || (f.starts_with("#+") && m.starts_with("#+")) => {
+                fence = None;
+                continue;
+            }
+            (Some(_), _) => continue,
+            _ => {}
+        }
+        if t.is_empty() || is_rule(t) {
+            continue;
+        }
+        let prefixed = prefixes.iter().any(|p| lower.starts_with(p));
+        let underlined = underlines && lines.get(i + 1).is_some_and(|n| is_rule(n));
+        if prefixed || underlined {
+            out.push((i, letters(t)));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line_of(text: &str, format: Format, title: &str, nth: usize) -> Option<usize> {
+        let key = letters(title);
+        heading_candidates(text, format)
+            .into_iter()
+            .filter(|(_, k)| *k == key)
+            .nth(nth)
+            .map(|(i, _)| i + 1)
+    }
+
+    #[test]
+    fn finds_headings_in_every_format() {
+        let md = "Intro\n=====\n\n```\n# Not\n```\n\n## Use **it**\n\nSub\n---\n";
+        assert_eq!(line_of(md, Format::Markdown, "Intro", 0), Some(1));
+        assert_eq!(line_of(md, Format::Markdown, "Not", 0), None);
+        assert_eq!(line_of(md, Format::Markdown, "Use it", 0), Some(8));
+        assert_eq!(line_of(md, Format::Markdown, "Sub", 0), Some(10));
+        // A list item and a thematic break do not count in Markdown.
+        let md2 = "* Install\n\n----\n\n## Install\n";
+        assert_eq!(line_of(md2, Format::Markdown, "Install", 0), Some(5));
+        let org = "#+TITLE: x\n* One\n#+begin_src sh\n* fake\n#+end_src\n** Two\n";
+        assert_eq!(line_of(org, Format::Org, "Two", 0), Some(6));
+        assert_eq!(line_of(org, Format::Org, "fake", 0), None);
+        let adoc = "= Doc\n\n[source]\n----\n== fake\n----\n\n== Part\n";
+        assert_eq!(line_of(adoc, Format::AsciiDoc, "Part", 0), Some(8));
+        assert_eq!(line_of(adoc, Format::AsciiDoc, "fake", 0), None);
+        let rst = "=====\nTitle\n=====\n\nSection\n-------\n\nSection\n-------\n";
+        assert_eq!(line_of(rst, Format::Rst, "Title", 0), Some(2));
+        assert_eq!(line_of(rst, Format::Rst, "Section", 1), Some(8));
+    }
+
+    #[test]
+    fn editor_line_arguments() {
+        let p = std::path::Path::new("a.md");
+        let args = |e| {
+            editor_args(e, p, 7)
+                .into_iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(args("nvim"), ["+7", "a.md"]);
+        assert_eq!(args("code"), ["-g", "a.md:7"]);
+        assert_eq!(args("zed"), ["a.md:7"]);
+        assert_eq!(args("notepad"), ["a.md"]);
     }
 }

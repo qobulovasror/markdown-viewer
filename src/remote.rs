@@ -121,6 +121,21 @@ pub fn fetch(input: &str) -> Result<(String, String)> {
     Ok((final_url, String::from_utf8_lossy(&body).into_owned()))
 }
 
+/// Downloads an http(s) resource (an image) with the same limits as documents.
+pub fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
+    if !url::Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https")) {
+        bail!("not an http(s) URL: {url}");
+    }
+    // Short limits: images are fetched while the document is laid out.
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .timeout_connect(Some(Duration::from_secs(3)))
+        .user_agent(concat!("mdvw/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .into();
+    get(&agent, url, "image/*").map(|(_, body)| body)
+}
+
 /// Resolves a relative link against a document URL (`None` if not http(s)).
 pub fn join(base: &str, link: &str) -> Option<String> {
     let url = url::Url::parse(base).ok()?.join(link).ok()?;

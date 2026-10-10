@@ -22,6 +22,8 @@ pub struct Config {
     pub remember_position: bool,
     /// Show images when the terminal supports Kitty, iTerm2 or Sixel graphics.
     pub images: bool,
+    /// Download images from the web (also those of web documents).
+    pub remote_images: bool,
     /// Wrap long code lines; `false` keeps them whole and `←`/`→` scroll them.
     pub wrap_code: bool,
     /// Key bindings by action name, e.g. `quit = ["q", "esc"]`.
@@ -42,6 +44,7 @@ impl Default for Config {
             toc: false,
             remember_position: true,
             images: true,
+            remote_images: false,
             wrap_code: true,
             keys: BTreeMap::new(),
             warnings: Vec::new(),
@@ -108,6 +111,7 @@ const KEYS: &[&str] = &[
     "toc",
     "remember_position",
     "images",
+    "remote_images",
     "wrap_code",
     "keys",
 ];

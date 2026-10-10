@@ -208,6 +208,10 @@ pub struct App {
     /// Heading to show after the first layout (`file.md#anchor`).
     start_anchor: Option<String>,
     pub(super) watcher: Option<FileWatcher>,
+    /// Watches the folder in directory mode while watch is on.
+    pub(super) folder_watcher: Option<FileWatcher>,
+    /// The file list came from scanning `root` (not from the command line).
+    pub(super) scanned: bool,
     /// Set by the `e` key; the event loop suspends the UI and runs the editor.
     pub open_editor: bool,
     message: Option<(String, Instant)>,
@@ -280,6 +284,8 @@ impl App {
             pending_restore,
             start_anchor: None,
             watcher: None,
+            folder_watcher: None,
+            scanned: false,
             open_editor: false,
             message: None,
             quit: false,
@@ -313,10 +319,8 @@ impl App {
 
     pub(super) fn relayout(&mut self, width: usize) {
         self.layout_width = width;
-        // Relative images of a fetched document would resolve against the cwd.
         let image_rows = match &mut self.images {
-            Some(_) if self.source.url.is_some() => Default::default(),
-            Some(img) => img.plan(&self.doc, self.source.path.as_deref(), width as u16),
+            Some(img) => img.plan(&self.doc, &self.source, width as u16),
             None => Default::default(),
         };
         self.rendered = layout::layout(
@@ -907,17 +911,33 @@ impl App {
 
     /// Switches to the next built-in theme.
     pub fn cycle_theme(&mut self) {
-        let names = crate::theme::THEME_NAMES;
-        let i = names
-            .iter()
-            .position(|n| *n == self.theme.name)
-            .unwrap_or(0);
-        let name = names[(i + 1) % names.len()];
-        self.theme = Theme::by_name(name).expect("built-in theme");
+        let names = crate::theme::all_names();
+        let i = names.iter().position(|n| n == self.theme.name).unwrap_or(0);
+        // A broken custom theme is skipped (its error is shown) instead of
+        // blocking the cycle.
+        let mut skipped = None;
+        let mut next = None;
+        for k in 1..=names.len() {
+            let name = &names[(i + k) % names.len()];
+            match Theme::load(name) {
+                Ok(t) => {
+                    next = Some((name.clone(), t));
+                    break;
+                }
+                Err(e) => skipped = Some(format!("{e:#}")),
+            }
+        }
+        let Some((name, theme)) = next else {
+            return;
+        };
+        self.theme = theme;
         let anchor = self.position_anchor();
         self.relayout(self.layout_width.max(20));
         self.restore_anchor(anchor);
-        self.notify(format!("Theme: {name}"));
+        match skipped {
+            Some(e) => self.notify(format!("Theme: {name} (skipped: {e})")),
+            None => self.notify(format!("Theme: {name}")),
+        }
     }
 
     pub fn max_scroll(&self) -> usize {
@@ -977,6 +997,13 @@ impl App {
 
     /// Periodic housekeeping between events.
     pub fn tick(&mut self) {
+        if self
+            .folder_watcher
+            .as_ref()
+            .is_some_and(FileWatcher::changed)
+        {
+            self.rescan_files();
+        }
         if self.watcher.as_ref().is_some_and(FileWatcher::changed) {
             match self.reload() {
                 Ok(()) => self.notify("File changed, reloaded"),

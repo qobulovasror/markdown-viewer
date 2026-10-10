@@ -28,6 +28,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - `S` searches every file of the list or folder and opens the chosen hit.
 - `Y` copies the focused link, or `file#heading` for the current section.
 - Recently opened files: `R` in the viewer, `mdvw --recent` on the command line.
+- Custom themes from `~/.config/mdvw/themes/<name>.toml` (a built-in base plus color overrides),
+  usable with `--theme`, the config file and `T`.
+- `remote_images = true` downloads web images, including those of web documents.
+- In directory mode, watch (`w`) also keeps the file list up to date.
+
+### Fixed
+- `e` opens the editor at the current heading in every format (setext, Org, AsciiDoc, RST), and
+  passes the line the way VS Code, Zed, Sublime and Kate expect.
 - Key bindings can be changed with a `[keys]` table in the config file.
 - Count prefixes: `5j`, `3]`, `42G` (line 42), `50%`, `3y` (copy code block 3).
 - Forward navigation (`L`), with `H` as another key for back.

@@ -19,10 +19,11 @@ use crossterm::execute;
 pub use app::{App, Panel, Source};
 pub use keymap::Keymap;
 
-pub fn run(mut app: App, images: bool) -> Result<()> {
+/// `images`: show inline images; `remote_images`: also download web images.
+pub fn run(mut app: App, images: bool, remote_images: bool) -> Result<()> {
     let mut terminal = ratatui::init();
     if images {
-        app.images = images::Images::detect();
+        app.images = images::Images::detect(remote_images);
     }
     // ratatui::init's hook restores the terminal; we also release the mouse.
     let hook = std::panic::take_hook();

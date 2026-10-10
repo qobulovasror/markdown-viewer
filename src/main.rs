@@ -32,8 +32,9 @@ struct Cli {
     #[arg(long)]
     width: Option<usize>,
 
-    /// Color theme.
-    #[arg(short, long, value_parser = clap::builder::PossibleValuesParser::new(theme::THEME_NAMES))]
+    /// Color theme: dark, light, dracula, nord, gruvbox, or a custom theme from
+    /// ~/.config/mdvw/themes/<name>.toml.
+    #[arg(short, long)]
     theme: Option<String>,
 
     /// When to use colors.
@@ -106,18 +107,17 @@ fn run() -> Result<()> {
         .as_deref()
         .map(|name| parser::Format::from_name(name).context("unknown format"))
         .transpose()?;
+    if cfg!(not(feature = "remote")) && cfg.remote_images {
+        cfg.warnings
+            .push("remote_images needs a build with the `remote` feature".into());
+    }
     let viewer = std::io::stdout().is_terminal() && !cli.print;
     let inputs = load_inputs(&cli.paths, format, viewer)?;
 
     let stdout = std::io::stdout();
     let tty = stdout.is_terminal();
     let theme = match cli.theme.as_ref().or(cfg.theme.as_ref()) {
-        Some(name) => Theme::by_name(name).with_context(|| {
-            format!(
-                "unknown theme '{name}' (available: {})",
-                theme::THEME_NAMES.join(", ")
-            )
-        })?,
+        Some(name) => Theme::load(name)?,
         None if tty && std::io::stdin().is_terminal() => theme::auto(),
         None => Theme::default_dark(),
     };
@@ -150,7 +150,11 @@ fn run() -> Result<()> {
         if let Some(a) = anchor {
             app.start_at_anchor(a);
         }
-        return tui::run(app, cfg.images && std::io::stdin().is_terminal());
+        return tui::run(
+            app,
+            cfg.images && std::io::stdin().is_terminal(),
+            cfg.remote_images,
+        );
     }
 
     for w in &cfg.warnings {
@@ -212,7 +216,7 @@ fn write_man(w: &mut dyn Write) -> Result<()> {
     writeln!(w, ".SH FILES")?;
     writeln!(
         w,
-        ".TP\n\\fI~/.config/mdvw/config.toml\\fR\nOptional configuration (theme, max_width, mouse, watch, hyperlinks, toc, remember_position, images, wrap_code, and a [keys] table mapping action names to keys)."
+        ".TP\n\\fI~/.config/mdvw/config.toml\\fR\nOptional configuration (theme, max_width, mouse, watch, hyperlinks, toc, remember_position, images, remote_images, wrap_code, and a [keys] table mapping action names to keys)."
     )?;
     writeln!(
         w,

@@ -66,8 +66,9 @@ mdvw -p x.md | less -R
 - **Viewer**: vim/less keys, regex search, link navigation with history, bookmarks, copy a code block,
   `$EDITOR` integration, a remembered reading position, focus (max-width) mode, a file panel and a
   fuzzy finder.
-- **Themes**: `dark`, `light`, `dracula`, `nord` and `gruvbox`. The default follows the terminal
-  background. Colors fall back to 256/16 colors, and `NO_COLOR` is honored.
+- **Themes**: `dark`, `light`, `dracula`, `nord` and `gruvbox`, plus your own (see
+  Configuration). The default follows the terminal background. Colors fall back to 256/16 colors,
+  and `NO_COLOR` is honored.
 
 > [!TIP]
 > Press `?` in the viewer to see every key, and `i` for document info and front matter.
@@ -160,8 +161,8 @@ mdvw -p --width 80 --color always x.md | less -R
 | `Y` | Copy the focused link, or a link to the current section |
 | `W`, `←` `→` | Stop wrapping long code lines, then scroll them sideways |
 | `m` + letter, `'` + letter | Set / jump to a bookmark |
-| `e` | Edit in `$EDITOR` at the current heading |
-| `w` | Toggle watch mode |
+| `e` | Edit in `$EDITOR` at the current heading (vim, nano, helix, emacs, VS Code, Zed, Sublime, ...) |
+| `w` | Toggle watch mode (in a folder, the file list follows added and removed files) |
 | `z` | Toggle focus width / full width |
 | `T` | Cycle theme |
 | `i` | Document info and front matter |
@@ -193,6 +194,8 @@ toc = false             # open the table of contents on start
 remember_position = true
 images = true
 wrap_code = true        # false: long code lines scroll sideways (← →) instead of wrapping
+remote_images = false   # true: download web images (also those of web documents);
+                        # documents can then make mdvw request any URL
 
 [keys]                  # action = key or [keys]; replaces that action's defaults
 quit = ["q", "esc"]
@@ -206,6 +209,26 @@ actions are reported as warnings, not errors. Keys inside the contents and file 
 
 Reading positions and bookmarks are stored in `~/.local/state/mdvw/state.json`.
 
+**Custom themes** live in `~/.config/mdvw/themes/<name>.toml` and are used with
+`mdvw -t <name>`, `theme = "<name>"` or by cycling with `T`. Every key is optional:
+
+```toml
+base = "nord"                    # built-in theme to start from (default: dark)
+syntax = "base16-ocean.dark"     # code highlighting theme
+[colors]                         # #rrggbb
+fg = "#d8dee9"                   # body text (unset keeps the base's choice)
+muted = "#616e88"
+surface = "#3b4252"              # code, status bar background
+accents = ["#88c0d0", "#81a1c1"] # headings h1..h6 (the last one repeats)
+code = "#ebcb8b"
+link = "#88c0d0"
+green = "#a3be8c"
+yellow = "#ebcb8b"
+red = "#bf616a"
+blue = "#81a1c1"
+purple = "#b48ead"
+```
+
 </details>
 
 <details>
@@ -214,7 +237,7 @@ Reading positions and bookmarks are stored in `~/.local/state/mdvw/state.json`.
 - **Colors look washed out.** Your terminal may not advertise truecolor. Try
   `COLORTERM=truecolor mdvw file.md`.
 - **No images.** Images need a graphics protocol (Kitty, iTerm2, WezTerm, Ghostty, foot). They are
-  disabled inside tmux, and remote URLs are not downloaded.
+  disabled inside tmux. Web images are only downloaded with `remote_images = true`.
 - **Can't select text with the mouse.** Press `M` to release mouse capture.
 - **No colors at all.** Check that `NO_COLOR` is unset and stdout is a terminal. You can also force
   colors with `--color always`.
