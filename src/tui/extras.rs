@@ -121,7 +121,7 @@ impl App {
 
     fn start_watch(&mut self) {
         let Some(path) = self.source.path.clone() else {
-            self.notify("Cannot watch stdin");
+            self.notify("Only local files can be watched");
             return;
         };
         match FileWatcher::new(&path) {
@@ -187,7 +187,7 @@ impl App {
     /// Runs the editor on the current file; the caller suspends the terminal.
     pub fn run_editor(&mut self) {
         let Some(path) = self.source.path.clone() else {
-            self.notify("stdin cannot be edited");
+            self.notify("Only local files can be edited");
             return;
         };
         let editor = std::env::var("VISUAL")

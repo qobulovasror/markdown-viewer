@@ -232,6 +232,8 @@ pub fn run(app: &mut App, action: Action, count: Option<usize>) {
         Action::Toc => app.toggle_toc(),
         Action::Files => app.toggle_files(),
         Action::Finder => app.open_finder(),
+        Action::NextFile => app.step_file(n),
+        Action::PrevFile => app.step_file(-n),
         Action::FocusPanel => {
             if app.panel.is_some() {
                 app.focus = Focus::Panel;
@@ -245,6 +247,10 @@ pub fn run(app: &mut App, action: Action, count: Option<usize>) {
         Action::Follow => match app.focused_link_id() {
             Some(id) => app.follow_link(id),
             None => app.scroll_by(n),
+        },
+        Action::OpenExternal => match app.focused_link_id() {
+            Some(id) => app.open_link_externally(id),
+            None => app.notify("No link focused (Tab selects one)"),
         },
         Action::Back => repeat(app, App::back),
         Action::Forward => repeat(app, App::forward),
@@ -265,7 +271,8 @@ pub fn run(app: &mut App, action: Action, count: Option<usize>) {
         },
         Action::Edit => app.open_editor = true,
         Action::Reload => match app.reload() {
-            Ok(()) => app.notify("Reloaded"),
+            Ok(()) if app.fetch.is_none() => app.notify("Reloaded"),
+            Ok(()) => {}
             Err(e) => app.notify(format!("Reload failed: {e:#}")),
         },
         Action::Watch => app.toggle_watch(),

@@ -24,6 +24,14 @@ pub fn is_viewable(path: &Path) -> bool {
         .is_some_and(|e| VIEWABLE.contains(&e.to_ascii_lowercase().as_str()))
 }
 
+/// True for http(s) URLs and GitHub shorthands (`gh:owner/repo`, `github.com/...`).
+pub fn is_remote(input: &str) -> bool {
+    let lower = input.to_ascii_lowercase();
+    ["http://", "https://", "gh:", "github.com/"]
+        .iter()
+        .any(|p| lower.starts_with(p))
+}
+
 /// Resolves `url` relative to the directory of `base` (the current file).
 pub fn resolve(url: &str, base: Option<&Path>) -> Target {
     if let Some(anchor) = url.strip_prefix('#') {

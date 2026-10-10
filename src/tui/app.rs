@@ -21,6 +21,8 @@ use crate::watch::FileWatcher;
 #[derive(Debug, Clone)]
 pub struct Source {
     pub path: Option<PathBuf>,
+    /// Set for documents fetched over http(s); `path` is then `None`.
+    pub url: Option<String>,
     pub text: String,
     pub format: parser::Format,
 }
@@ -31,18 +33,48 @@ impl Source {
             std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
         Ok(Source {
             path: Some(path.to_path_buf()),
+            url: None,
             text: String::from_utf8_lossy(&bytes).into_owned(),
             format: parser::Format::from_path(path),
         })
     }
 
+    /// Downloads a URL or GitHub shorthand (`gh:owner/repo`).
+    #[cfg(feature = "remote")]
+    pub fn from_url(input: &str) -> Result<Source> {
+        let (url, text) = crate::remote::fetch(input)?;
+        let name = crate::remote::file_name(&url);
+        Ok(Source {
+            path: None,
+            format: parser::Format::from_path(Path::new(&name)),
+            url: Some(url),
+            text,
+        })
+    }
+
+    #[cfg(not(feature = "remote"))]
+    pub fn from_url(input: &str) -> Result<Source> {
+        anyhow::bail!("cannot open {input}: mdvw was built without the `remote` feature")
+    }
+
     pub fn name(&self) -> String {
-        match &self.path {
-            Some(p) => p
+        match (&self.path, &self.url) {
+            (Some(p), _) => p
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| p.display().to_string()),
-            None => "stdin".into(),
+            #[cfg(feature = "remote")]
+            (None, Some(u)) => crate::remote::file_name(u),
+            _ => "stdin".into(),
+        }
+    }
+
+    /// Full location for messages: path, URL or `stdin`.
+    pub fn location(&self) -> String {
+        match (&self.path, &self.url) {
+            (Some(p), _) => p.display().to_string(),
+            (None, Some(u)) => u.clone(),
+            _ => "stdin".into(),
         }
     }
 }
@@ -100,6 +132,14 @@ pub enum Pending {
     Open,
 }
 
+/// A download to run after the next draw.
+pub struct Fetch {
+    pub url: String,
+    pub anchor: Option<String>,
+    /// Replace the current document instead of opening a new one.
+    pub reload: bool,
+}
+
 pub(super) struct HistoryEntry {
     pub(super) source: Source,
     pub(super) scroll: usize,
@@ -132,6 +172,7 @@ pub struct App {
     /// Numeric prefix typed before a command (`5j`, `50%`).
     pub count: Option<usize>,
     pub help_scroll: usize,
+    pub fetch: Option<Fetch>,
     /// Screen areas from the last draw, for mouse hit-testing.
     pub text_rect: ratatui::layout::Rect,
     pub panel_rect: Option<ratatui::layout::Rect>,
@@ -150,6 +191,8 @@ pub struct App {
     pub(super) remember: bool,
     /// Position to restore after the first layout.
     pending_restore: Option<Position>,
+    /// Heading to show after the first layout (`file.md#anchor`).
+    start_anchor: Option<String>,
     pub(super) watcher: Option<FileWatcher>,
     /// Set by the `e` key; the event loop suspends the UI and runs the editor.
     pub open_editor: bool,
@@ -197,6 +240,7 @@ impl App {
             keymap,
             count: None,
             help_scroll: 0,
+            fetch: None,
             text_rect: Default::default(),
             panel_rect: None,
             root: None,
@@ -214,6 +258,7 @@ impl App {
             state,
             remember: cfg.remember_position,
             pending_restore,
+            start_anchor: None,
             watcher: None,
             open_editor: false,
             message: None,
@@ -235,6 +280,11 @@ impl App {
         }
         let anchor = self.position_anchor();
         self.relayout(width);
+        if let Some(a) = self.start_anchor.take() {
+            self.pending_restore = None;
+            self.jump_to_anchor_inner(&a, false);
+            return;
+        }
         match self.pending_restore.take() {
             Some(pos) => self.scroll_to(self.line_of(&pos)),
             None => self.restore_anchor(anchor),
@@ -243,7 +293,9 @@ impl App {
 
     pub(super) fn relayout(&mut self, width: usize) {
         self.layout_width = width;
+        // Relative images of a fetched document would resolve against the cwd.
         let image_rows = match &mut self.images {
+            Some(_) if self.source.url.is_some() => Default::default(),
             Some(img) => img.plan(&self.doc, self.source.path.as_deref(), width as u16),
             None => Default::default(),
         };
@@ -285,13 +337,25 @@ impl App {
     }
 
     pub fn reload(&mut self) -> Result<()> {
-        let Some(path) = self.source.path.clone() else {
-            self.notify("stdin cannot be reloaded");
-            return Ok(());
-        };
         let format = self.source.format;
+        let fresh = match (self.source.path.clone(), self.source.url.clone()) {
+            (Some(path), _) => Source::from_file(&path)?,
+            (None, Some(url)) => {
+                self.notify(format!("Loading {url}…"));
+                self.fetch = Some(Fetch {
+                    url,
+                    anchor: None,
+                    reload: true,
+                });
+                return Ok(());
+            }
+            _ => {
+                self.notify("stdin cannot be reloaded");
+                return Ok(());
+            }
+        };
         self.cancel_pending();
-        self.source = Source::from_file(&path)?;
+        self.source = fresh;
         self.source.format = format;
         self.reparse();
         let anchor = self.position_anchor();
@@ -320,6 +384,10 @@ impl App {
         self.scroll = 0;
         self.toc_selected = 0;
         self.rewatch();
+    }
+
+    pub fn start_at_anchor(&mut self, anchor: String) {
+        self.start_anchor = Some(anchor);
     }
 
     /// Saves the current place so `back` can return to it.
@@ -363,7 +431,9 @@ impl App {
         {
             source.text = fresh.text;
         }
-        let same = source.path == self.source.path && source.text == self.source.text;
+        let same = source.path == self.source.path
+            && source.url == self.source.url
+            && source.text == self.source.text;
         if !same {
             self.save_state();
             self.source = source;
@@ -399,11 +469,55 @@ impl App {
         }
     }
 
+    /// Where a link points; links in a fetched document resolve against its URL.
+    pub(super) fn link_target(&self, url: &str) -> Target {
+        match &self.source.url {
+            Some(base) if !url.starts_with('#') => {
+                #[cfg(feature = "remote")]
+                if let Some(abs) = crate::remote::join(base, url) {
+                    return Target::External(abs);
+                }
+                let _ = base;
+                Target::External(url.to_string())
+            }
+            _ => links::resolve(url, self.source.path.as_deref()),
+        }
+    }
+
+    /// Opens a link: documents in the viewer (local or web), the rest externally.
     pub fn follow_link(&mut self, id: usize) {
+        self.follow(id, false);
+    }
+
+    /// Opens a link with the system handler even if mdvw could show it.
+    pub fn open_link_externally(&mut self, id: usize) {
+        self.follow(id, true);
+    }
+
+    fn follow(&mut self, id: usize, external: bool) {
         let Some(url) = self.rendered.links.get(id).cloned() else {
             return;
         };
-        match links::resolve(&url, self.source.path.as_deref()) {
+        let target = match self.link_target(&url) {
+            Target::Document(path, _) if external => {
+                Target::External(path.to_string_lossy().into_owned())
+            }
+            t => t,
+        };
+        #[cfg(feature = "remote")]
+        if let Target::External(t) = &target
+            && !external
+            && let Some((doc, anchor)) = crate::remote::document_url(t)
+        {
+            self.notify(format!("Loading {doc}…"));
+            self.fetch = Some(Fetch {
+                url: doc,
+                anchor,
+                reload: false,
+            });
+            return;
+        }
+        match target {
             Target::Anchor(a) => {
                 self.jump_to_anchor(&a);
             }
@@ -423,6 +537,33 @@ impl App {
                 self.pending = Some(Pending::Open);
             }
             Target::External(t) => self.open_external(&t),
+        }
+    }
+
+    /// Runs a download requested by `follow` or `reload`; the event loop calls
+    /// this after drawing, so the "Loading…" message is visible meanwhile.
+    pub fn run_fetch(&mut self) {
+        let Some(f) = self.fetch.take() else {
+            return;
+        };
+        match Source::from_url(&f.url) {
+            Ok(mut src) if f.reload => {
+                src.format = self.source.format;
+                self.source = src;
+                self.reparse();
+                let anchor = self.position_anchor();
+                self.relayout(self.layout_width.max(20));
+                self.restore_anchor(anchor);
+                self.notify("Reloaded");
+            }
+            Ok(src) => {
+                self.open_source(src);
+                if let Some(a) = f.anchor {
+                    self.jump_to_anchor_inner(&a, false);
+                }
+                self.notify(format!("Opened {} (Backspace to go back)", f.url));
+            }
+            Err(e) => self.notify(format!("{e:#}")),
         }
     }
 

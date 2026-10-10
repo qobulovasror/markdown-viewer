@@ -14,6 +14,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Windows: links open through `rundll32` instead of `cmd /C start`, which interpreted `&` in URLs.
 
 ### Added
+- Open documents from the web: `mdvw https://…/notes.md`, `mdvw gh:owner/repo` (the README),
+  `gh:owner/repo/path.md` and `github.com/…` URLs (`blob` and `tree` pages too). Relative links
+  in them resolve against the URL, and web links to documents open in the viewer. Built with the
+  default `remote` cargo feature.
+- Several files on the command line: `}` / `{` step through them (or through the folder), and
+  print mode renders each with a `==> name <==` header.
+- `mdvw file.md#heading` opens at that heading.
+- `O` opens the focused link with the browser or system app.
 - Key bindings can be changed with a `[keys]` table in the config file.
 - Count prefixes: `5j`, `3]`, `42G` (line 42), `50%`, `3y` (copy code block 3).
 - Forward navigation (`L`), with `H` as another key for back.

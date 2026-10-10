@@ -13,6 +13,8 @@ pub mod links;
 pub mod math;
 pub mod mermaid;
 pub mod parser;
+#[cfg(feature = "remote")]
+pub mod remote;
 pub mod render;
 pub mod search;
 pub mod state;

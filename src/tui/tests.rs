@@ -27,6 +27,7 @@ fn app_with(cfg: Config, text: &str) -> (App, Terminal<TestBackend>) {
     };
     let source = Source {
         path: None,
+        url: None,
         text: text.to_string(),
         format: Format::Markdown,
     };
@@ -181,4 +182,86 @@ fn risky_link_needs_confirmation_and_click_cancels() {
     // A later `y` must not open anything; it starts a code-block copy instead.
     press(&mut t, "y");
     assert!(t.0.message().unwrap().starts_with("Copy code"));
+}
+
+#[test]
+fn starts_at_anchor() {
+    let mut t = app_with(Config::default(), "x");
+    t.0 = {
+        let cfg = Config {
+            remember_position: false,
+            ..Config::default()
+        };
+        let src = Source {
+            path: None,
+            url: None,
+            text: doc(),
+            format: Format::Markdown,
+        };
+        let mut a = App::new(src, Theme::default_dark(), ColorDepth::None, &cfg);
+        a.start_at_anchor("End".into());
+        a
+    };
+    draw(&mut t);
+    assert!(t.0.scroll > 100);
+}
+
+#[test]
+fn steps_through_file_list() {
+    let dir = std::env::temp_dir().join(format!("mdvw-files-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let files: Vec<std::path::PathBuf> = ["a.md", "b.md", "c.md"]
+        .iter()
+        .map(|n| {
+            let p = dir.join(n);
+            std::fs::write(&p, format!("# {n}\n")).unwrap();
+            p
+        })
+        .collect();
+    let cfg = Config {
+        remember_position: false,
+        ..Config::default()
+    };
+    let src = Source::from_file(&files[0]).unwrap();
+    let mut t = (
+        App::new(src, Theme::default_dark(), ColorDepth::None, &cfg),
+        Terminal::new(TestBackend::new(80, 24)).unwrap(),
+    );
+    let mut list = files.clone();
+    list.push(files[0].clone());
+    t.0.set_file_list(list);
+    assert_eq!(t.0.files.len(), 3);
+    draw(&mut t);
+    press(&mut t, "}");
+    assert_eq!(t.0.source.name(), "b.md");
+    press(&mut t, "2}");
+    assert_eq!(t.0.source.name(), "a.md");
+    press(&mut t, "{");
+    assert_eq!(t.0.source.name(), "c.md");
+    assert_eq!(t.0.current_file(), Some(2));
+    // Off the list, `}` opens the selected entry first.
+    let other = dir.join("other.md");
+    std::fs::write(&other, "# o\n").unwrap();
+    t.0.open_source(Source::from_file(&other).unwrap());
+    press(&mut t, "}");
+    assert_eq!(t.0.source.name(), "c.md");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[cfg(feature = "remote")]
+#[test]
+fn links_in_web_documents_resolve_against_their_url() {
+    let mut t = app_with(Config::default(), "[a](../b.md) [s](#x)\n\n# X\n");
+    t.0.source.url = Some("https://h.dev/docs/a.md".into());
+    assert_eq!(
+        t.0.link_target("../b.md"),
+        crate::links::Target::External("https://h.dev/b.md".into())
+    );
+    assert_eq!(
+        t.0.link_target("#x"),
+        crate::links::Target::Anchor("x".into())
+    );
+    // `F` and `}` have no folder to list for a web document.
+    press(&mut t, "}");
+    assert_eq!(t.0.message(), Some("No file list for a web document"));
 }

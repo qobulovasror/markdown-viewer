@@ -66,6 +66,10 @@ pub fn run(mut app: App, images: bool) -> Result<()> {
                     }
                 }
             }
+            if app.fetch.is_some() {
+                terminal.draw(|f| ui::draw(f, &mut app))?;
+                app.run_fetch();
+            }
             app.tick();
         }
         app.save_state();

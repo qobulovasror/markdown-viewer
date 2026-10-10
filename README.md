@@ -23,6 +23,7 @@ stdout. It is a single binary, starts in milliseconds and needs no configuration
 mdvw README.md        # read
 mdvw docs/            # browse a folder
 mdvw -w notes.md      # live reload while you edit
+mdvw gh:owner/repo    # a GitHub README
 mdvw -p x.md | less -R
 ```
 
@@ -50,7 +51,12 @@ mdvw -p x.md | less -R
 - **Code blocks** are syntax highlighted with bat's syntax set. The language comes from the fence or
   a shebang line.
 - **Links** are clickable (OSC 8) in print mode. In the viewer, follow them with `Tab`/`Enter`.
-  Local documents open in place.
+  Local and web documents (`.md`, `.rst`, ... and GitHub `blob` links) open in place; `O` opens
+  the focused link in the browser instead.
+- **Remote documents**: `mdvw https://…/x.md`, `mdvw gh:owner/repo` or a `github.com` URL.
+  Relative links inside them resolve against the web address. A local file or folder with the
+  same name wins over a URL-like argument. Branch names containing `/` are not supported in
+  `github.com/.../tree/<branch>` URLs.
 - **Images** appear inline on Kitty, iTerm2, WezTerm, Ghostty and other graphics-capable terminals.
   Other terminals show `[🖼 alt]`.
 - **Mermaid** flowcharts and sequence diagrams are drawn as box art in the terminal. Wide
@@ -98,6 +104,11 @@ mdvw README.md                       # open the viewer
 mdvw docs/                           # directory mode: file panel + README/index
 mdvw -p README.md                    # print rendered output
 mdvw -w notes.md                     # reload when the file changes
+mdvw README.md#install               # open at a heading
+mdvw a.md b.md c.md                  # several files: } next, { previous
+mdvw https://example.com/notes.md    # a document on the web
+mdvw gh:owner/repo                   # GitHub README (also github.com/owner/repo/...)
+mdvw gh:owner/repo/docs/guide.md     # a file in a GitHub repository
 curl -s https://example.com/x.md | mdvw
 mdvw -p --width 80 --color always x.md | less -R
 ```
@@ -107,6 +118,7 @@ mdvw -p --width 80 --color always x.md | less -R
 
 | Option | Description |
 |---|---|
+| `PATH...` | Files, a directory, a URL or `gh:owner/repo`; `file.md#heading` opens at a heading |
 | `-p, --print` | Print to stdout instead of opening the viewer (default when stdout is not a terminal) |
 | `-w, --watch` | Reload when the file changes |
 | `-t, --theme <name>` | Color theme |
@@ -134,10 +146,12 @@ mdvw -p --width 80 --color always x.md | less -R
 | `]` `[` | Next / previous heading |
 | `t` | Table of contents (`h`/`l` move focus between panel and text) |
 | `F` | File panel |
+| `}` `{` | Next / previous file in the list or folder |
 | `o`, `Ctrl-p` | Fuzzy find and open a file |
 | `/` `n` `N` | Search (regex, smart-case), next / previous match; `↑` `↓` recall earlier searches |
 | `Tab` `Shift-Tab` | Next / previous link |
 | `Enter` | Open the focused link |
+| `O` | Open the focused link in the browser / system app |
 | `Backspace`, `Ctrl-o`, `H` / `L` | Go back / forward |
 | `y` + `1-9`, `yy` | Copy code block *n* / the block on screen |
 | `m` + letter, `'` + letter | Set / jump to a bookmark |

@@ -19,8 +19,10 @@ enum ColorChoice {
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {
-    /// File to view; `-` or nothing reads stdin.
-    path: Option<PathBuf>,
+    /// Files, a directory, a URL or `gh:owner/repo` to view; `-` or nothing reads stdin.
+    /// `file.md#section` opens at a heading.
+    #[arg(value_name = "PATH")]
+    paths: Vec<PathBuf>,
 
     /// Print rendered output to stdout instead of opening the viewer.
     #[arg(short, long)]
@@ -88,22 +90,13 @@ fn run() -> Result<()> {
     } else {
         config::Config::load()?
     };
-    // A directory opens its README/index (or first document) with a file panel.
-    let mut path = cli.path.clone().filter(|p| p.as_os_str() != "-");
-    let mut dir_root = None;
-    if let Some(dir) = path.clone().filter(|p| p.is_dir()) {
-        let files = files::scan(&dir);
-        let idx = files::default_file(&files)
-            .with_context(|| format!("no documents found in {}", dir.display()))?;
-        path = Some(dir.join(&files[idx]));
-        dir_root = Some((dir, files));
-    }
-    let src = read_input(path.as_ref())?;
-    let format = match (&cli.format, &path) {
-        (Some(name), _) => parser::Format::from_name(name).context("unknown format")?,
-        (None, Some(p)) => parser::Format::from_path(p),
-        (None, None) => parser::Format::Markdown,
-    };
+    let format = cli
+        .format
+        .as_deref()
+        .map(|name| parser::Format::from_name(name).context("unknown format"))
+        .transpose()?;
+    let viewer = std::io::stdout().is_terminal() && !cli.print;
+    let inputs = load_inputs(&cli.paths, format, viewer)?;
 
     let stdout = std::io::stdout();
     let tty = stdout.is_terminal();
@@ -122,20 +115,29 @@ fn run() -> Result<()> {
             ColorChoice::Never => ColorDepth::None,
             _ => ColorDepth::detect(),
         };
-        let source = tui::Source {
-            path,
-            text: src,
-            format,
-        };
         if let Some(w) = cli.width {
             cfg.max_width = w;
         }
         cfg.watch |= cli.watch;
         cfg.toc |= cli.toc;
-        let mut app = tui::App::new(source, theme, depth, &cfg);
+        let Inputs {
+            mut sources,
+            dir_root,
+            anchor,
+        } = inputs;
+        let files: Vec<PathBuf> = sources.iter().filter_map(|s| s.path.clone()).collect();
+        let first = sources.remove(0);
+        let mut app = tui::App::new(first, theme, depth, &cfg);
         if let Some((root, files)) = dir_root {
             app.set_root(root, files);
             app.panel = Some(tui::Panel::Files);
+        } else if files.len() > 1 {
+            let n = files.len();
+            app.set_file_list(files);
+            app.notify(format!("1 of {n} files: }} next, {{ previous, F list"));
+        }
+        if let Some(a) = anchor {
+            app.start_at_anchor(a);
         }
         return tui::run(app, cfg.images && std::io::stdin().is_terminal());
     }
@@ -159,16 +161,21 @@ fn run() -> Result<()> {
         ColorChoice::Auto if !tty => ColorDepth::None,
         ColorChoice::Auto => ColorDepth::detect(),
     };
-    let text = mdvw::render_to_string(
-        &src,
-        format,
-        &mdvw::PrintOptions {
-            width,
-            theme: &theme,
-            depth,
-            hyperlinks: cfg.hyperlinks && !cli.no_hyperlinks,
-        },
-    );
+    let opts = mdvw::PrintOptions {
+        width,
+        theme: &theme,
+        depth,
+        hyperlinks: cfg.hyperlinks && !cli.no_hyperlinks,
+    };
+    let many = inputs.sources.len() > 1;
+    let mut text = String::new();
+    for (i, src) in inputs.sources.iter().enumerate() {
+        if many {
+            let sep = if i > 0 { "\n" } else { "" };
+            text.push_str(&format!("{sep}==> {} <==\n\n", src.location()));
+        }
+        text.push_str(&mdvw::render_to_string(&src.text, src.format, &opts));
+    }
     let mut lock = stdout.lock();
     if let Err(e) = lock.write_all(text.as_bytes()).and_then(|_| lock.flush())
         && e.kind() != std::io::ErrorKind::BrokenPipe
@@ -209,21 +216,110 @@ fn write_man(w: &mut dyn Write) -> Result<()> {
     Ok(())
 }
 
-fn read_input(path: Option<&PathBuf>) -> Result<String> {
-    let bytes = match path {
-        Some(p) => std::fs::read(p).with_context(|| format!("cannot read {}", p.display()))?,
-        _ => {
-            if std::io::stdin().is_terminal() {
-                bail!("no input file given (try `mdvw README.md` or `mdvw --help`)");
-            }
-            let mut buf = Vec::new();
-            std::io::stdin()
-                .read_to_end(&mut buf)
-                .context("cannot read stdin")?;
-            buf
-        }
+/// Documents named on the command line.
+struct Inputs {
+    sources: Vec<tui::Source>,
+    /// Directory mode: root and its documents.
+    dir_root: Option<(PathBuf, Vec<PathBuf>)>,
+    /// Heading to open at (`file.md#install`).
+    anchor: Option<String>,
+}
+
+fn load_inputs(paths: &[PathBuf], format: Option<parser::Format>, viewer: bool) -> Result<Inputs> {
+    let mut inputs = Inputs {
+        sources: Vec::new(),
+        dir_root: None,
+        anchor: None,
     };
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    let with_format = |mut s: tui::Source| {
+        if let Some(f) = format {
+            s.format = f;
+        }
+        s
+    };
+    if paths.is_empty() || (paths.len() == 1 && paths[0].as_os_str() == "-") {
+        inputs.sources.push(tui::Source {
+            path: None,
+            url: None,
+            text: read_stdin()?,
+            format: format.unwrap_or(parser::Format::Markdown),
+        });
+        return Ok(inputs);
+    }
+    let remote = |p: &PathBuf| mdvw::links::is_remote(&p.to_string_lossy()) && !p.exists();
+    if paths.len() > 1 {
+        if paths.iter().any(|p| p.as_os_str() == "-") {
+            bail!("`-` (stdin) cannot be combined with other inputs");
+        }
+        // The viewer's file list holds local files only.
+        if viewer && paths.iter().any(remote) {
+            bail!("the viewer opens one URL at a time (use -p to print several)");
+        }
+    }
+    for (i, p) in paths.iter().enumerate() {
+        let s = p.to_string_lossy();
+        if remote(p) {
+            let (url, anchor) = match s.rsplit_once('#') {
+                Some((u, a)) if !a.is_empty() => (u, Some(a.to_string())),
+                _ => (s.as_ref(), None),
+            };
+            if i == 0 {
+                inputs.anchor = anchor;
+            }
+            inputs
+                .sources
+                .push(with_format(tui::Source::from_url(url)?));
+            continue;
+        }
+        if p.is_dir() {
+            if paths.len() > 1 {
+                bail!("{} is a directory; give it on its own", p.display());
+            }
+            // A directory opens its README/index (or first document) with a file panel.
+            let files = files::scan(p);
+            let idx = files::default_file(&files)
+                .with_context(|| format!("no documents found in {}", p.display()))?;
+            let path = p.join(&files[idx]);
+            inputs
+                .sources
+                .push(with_format(tui::Source::from_file(&path)?));
+            inputs.dir_root = Some((p.clone(), files));
+            continue;
+        }
+        let (path, anchor) = split_anchor(p);
+        if i == 0 {
+            inputs.anchor = anchor;
+        }
+        let src = tui::Source::from_file(&path)
+            .with_context(|| format!("cannot open {}", p.display()))?;
+        inputs.sources.push(with_format(src));
+    }
+    Ok(inputs)
+}
+
+/// `notes.md#setup` → (`notes.md`, `setup`) unless a file has that literal name.
+fn split_anchor(p: &std::path::Path) -> (PathBuf, Option<String>) {
+    let s = p.to_string_lossy();
+    if !p.exists()
+        && let Some((file, anchor)) = s.rsplit_once('#')
+        && !anchor.contains(['/', '\\'])
+        && !file.is_empty()
+    {
+        let anchor = (!anchor.is_empty()).then(|| anchor.to_string());
+        return (PathBuf::from(file), anchor);
+    }
+    (p.to_path_buf(), None)
+}
+
+fn read_stdin() -> Result<String> {
+    if std::io::stdin().is_terminal() {
+        bail!("no input file given (try `mdvw README.md` or `mdvw --help`)");
+    }
+    let mut buf = Vec::new();
+    std::io::stdin()
+        .read_to_end(&mut buf)
+        .context("cannot read stdin")?;
+    Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
 #[cfg(test)]
@@ -233,6 +329,19 @@ mod tests {
     #[test]
     fn cli_definition_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn anchors_split_only_for_missing_files() {
+        let (p, a) = split_anchor(std::path::Path::new("README.md#install"));
+        assert_eq!(
+            (p, a.as_deref()),
+            (PathBuf::from("README.md"), Some("install"))
+        );
+        let (p, a) = split_anchor(std::path::Path::new("x.md#"));
+        assert_eq!((p, a), (PathBuf::from("x.md"), None));
+        let (p, a) = split_anchor(std::path::Path::new("Cargo.toml"));
+        assert_eq!((p, a), (PathBuf::from("Cargo.toml"), None));
     }
 
     #[test]
