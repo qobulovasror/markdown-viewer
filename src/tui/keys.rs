@@ -12,6 +12,12 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     if key.kind == KeyEventKind::Release {
         return;
     }
+    if app.mode == Mode::Normal
+        && let Some(p) = app.pending.take()
+    {
+        pending(app, p, key);
+        return;
+    }
     match app.mode {
         Mode::Help | Mode::Info => {
             if matches!(
@@ -124,6 +130,14 @@ fn toc(app: &mut App, key: KeyEvent) -> bool {
 }
 
 fn pending(app: &mut App, p: Pending, key: KeyEvent) {
+    if p == Pending::Open {
+        let target = app.confirm_target.take();
+        match (key.code, target) {
+            (KeyCode::Char('y' | 'Y'), Some(t)) => app.open_external(&t),
+            _ => app.notify("Cancelled"),
+        }
+        return;
+    }
     let KeyCode::Char(c) = key.code else {
         app.notify("Cancelled");
         return;
@@ -140,10 +154,6 @@ fn pending(app: &mut App, p: Pending, key: KeyEvent) {
 }
 
 fn normal(app: &mut App, key: KeyEvent) {
-    if let Some(p) = app.pending.take() {
-        pending(app, p, key);
-        return;
-    }
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let page = app.view_height.max(1) as isize;
     let half = (page / 2).max(1);
@@ -225,6 +235,11 @@ fn normal(app: &mut App, key: KeyEvent) {
 }
 
 pub fn handle_mouse(app: &mut App, m: MouseEvent) {
+    // A click cancels a pending prompt instead of acting behind it.
+    if matches!(m.kind, MouseEventKind::Down(_)) && app.pending.is_some() {
+        app.cancel_pending();
+        return;
+    }
     let pos = Position::new(m.column, m.row);
     let in_toc = app.panel_rect.is_some_and(|r| r.contains(pos));
     match m.kind {

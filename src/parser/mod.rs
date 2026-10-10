@@ -10,6 +10,7 @@ mod org;
 mod rst;
 mod text;
 
+use std::borrow::Cow;
 use std::path::Path;
 
 pub use ast::*;
@@ -109,6 +110,25 @@ fn postprocess_block(b: &mut Block) {
         }
         Block::CodeBlock { .. } | Block::Math(_) | Block::Rule => {}
     }
+}
+
+/// Makes control characters visible so documents cannot send escape sequences
+/// to the terminal: ESC becomes `␛`, C1 controls become `�`. Only tab stays.
+pub fn sanitize(s: &str) -> Cow<'_, str> {
+    let bad = |c: char| c.is_control() && c != '\t';
+    if !s.contains(bad) {
+        return Cow::Borrowed(s);
+    }
+    Cow::Owned(
+        s.chars()
+            .map(|c| match c {
+                c if !bad(c) => c,
+                '\u{7f}' => '\u{2421}',
+                c if (c as u32) < 0x20 => char::from_u32(0x2400 + c as u32).unwrap_or('\u{fffd}'),
+                _ => '\u{fffd}',
+            })
+            .collect(),
+    )
 }
 
 /// `<h1 ...>Title</h1>` blocks become real headings (shown in the TOC).
@@ -257,6 +277,12 @@ fn emoji(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_characters_are_made_visible() {
+        assert_eq!(sanitize("a\tb"), "a\tb");
+        assert_eq!(sanitize("x\x1b]0;t\x07\u{9b}\x7f\r"), "x␛]0;t␇\u{fffd}␡␍");
+    }
 
     #[test]
     fn emoji_shortcodes() {

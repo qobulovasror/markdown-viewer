@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+- Control characters in documents are shown as visible symbols (`␛`) instead of reaching the
+  terminal, so a document cannot change the title, clipboard or screen via escape sequences.
+- Opening a local file or a non-web URL from a link (scripts, apps, custom schemes) asks for
+  confirmation first. Web links, images and PDFs open directly.
+- Windows: links open through `rundll32` instead of `cmd /C start`, which interpreted `&` in URLs.
+
+### Changed
+- Unknown keys in the config file are reported as warnings instead of errors.
+
 ## [0.1.0] - 2026-10-02
 
 First release.

@@ -93,6 +93,8 @@ pub enum Pending {
     Mark,
     Jump,
     Yank,
+    /// Waiting for `y` to open `App::confirm_target`.
+    Open,
 }
 
 pub(super) struct HistoryEntry {
@@ -131,6 +133,8 @@ pub struct App {
     pub finder: super::files_panel::Finder,
     pub images: Option<super::images::Images>,
     pub pending: Option<Pending>,
+    /// External target waiting for confirmation (`Pending::Open`).
+    pub confirm_target: Option<String>,
     /// Width restored when leaving full-width mode.
     pub focus_width: usize,
     pub(super) state: State,
@@ -186,6 +190,7 @@ impl App {
             finder: Default::default(),
             images: None,
             pending: None,
+            confirm_target: None,
             focus_width: if cfg.max_width > 0 {
                 cfg.max_width
             } else {
@@ -267,6 +272,7 @@ impl App {
             return Ok(());
         };
         let format = self.source.format;
+        self.cancel_pending();
         self.source = Source::from_file(&path)?;
         self.source.format = format;
         self.reparse();
@@ -283,6 +289,7 @@ impl App {
 
     /// Replaces the current document, remembering it in the history.
     pub(super) fn open_source(&mut self, source: Source) {
+        self.cancel_pending();
         self.save_state();
         let prev = std::mem::replace(&mut self.source, source);
         self.history.push(HistoryEntry {
@@ -358,10 +365,26 @@ impl App {
                 }
                 Err(e) => self.notify(format!("{e:#}")),
             },
-            Target::External(t) => match links::open_external(&t) {
-                Ok(()) => self.notify(format!("Opening {t}")),
-                Err(e) => self.notify(format!("Cannot open {t}: {e}")),
-            },
+            Target::External(t) if links::needs_confirm(&t) => {
+                self.notify(format!("Open {t} with the system handler? (y/N)"));
+                self.confirm_target = Some(t);
+                self.pending = Some(Pending::Open);
+            }
+            Target::External(t) => self.open_external(&t),
+        }
+    }
+
+    pub fn cancel_pending(&mut self) {
+        if self.pending.take().is_some() {
+            self.confirm_target = None;
+            self.notify("Cancelled");
+        }
+    }
+
+    pub fn open_external(&mut self, t: &str) {
+        match links::open_external(t) {
+            Ok(()) => self.notify(format!("Opening {t}")),
+            Err(e) => self.notify(format!("Cannot open {t}: {e}")),
         }
     }
 
@@ -613,10 +636,12 @@ impl App {
                 Err(e) => self.notify(format!("Reload failed: {e:#}")),
             }
         }
-        if self
-            .message
-            .as_ref()
-            .is_some_and(|(_, t)| t.elapsed() > Duration::from_secs(3))
+        // A prompt stays visible while its key is pending.
+        if self.pending.is_none()
+            && self
+                .message
+                .as_ref()
+                .is_some_and(|(_, t)| t.elapsed() > Duration::from_secs(3))
         {
             self.message = None;
         }

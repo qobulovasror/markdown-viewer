@@ -133,6 +133,9 @@ fn run() -> Result<()> {
         cfg.watch |= cli.watch;
         cfg.toc |= cli.toc;
         let mut app = tui::App::new(source, theme, depth, &cfg);
+        if !cfg.warnings.is_empty() {
+            app.notify(format!("Config: {}", cfg.warnings.join("; ")));
+        }
         if let Some((root, files)) = dir_root {
             app.set_root(root, files);
             app.panel = Some(tui::Panel::Files);
@@ -140,6 +143,9 @@ fn run() -> Result<()> {
         return tui::run(app, cfg.images && std::io::stdin().is_terminal());
     }
 
+    for w in &cfg.warnings {
+        eprintln!("mdvw: warning: {w}");
+    }
     let width = cli.width.unwrap_or_else(|| {
         if tty {
             crossterm::terminal::size().map_or(80, |(w, _)| w as usize)

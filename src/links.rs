@@ -29,7 +29,7 @@ pub fn resolve(url: &str, base: Option<&Path>) -> Target {
     if let Some(anchor) = url.strip_prefix('#') {
         return Target::Anchor(anchor.to_string());
     }
-    if url.contains("://") || url.starts_with("mailto:") {
+    if crate::render::ansi::is_external(url) {
         if let Some(path) = url.strip_prefix("file://") {
             return local(path, None);
         }
@@ -79,23 +79,66 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Extensions that are safe to hand to the system viewer without asking.
+const SAFE_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "pdf"];
+
+/// True unless the target is a web/mail link or an existing local image/PDF;
+/// anything else (scripts, apps, symlinks to them, custom schemes) could run code.
+pub fn needs_confirm(target: &str) -> bool {
+    let lower = target.to_ascii_lowercase();
+    if ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|p| lower.starts_with(p))
+    {
+        return false;
+    }
+    if lower.contains("://") {
+        return true;
+    }
+    // Check the real file: `shot.png` may be a symlink to an app or script.
+    let Ok(real) = std::fs::canonicalize(target) else {
+        return true;
+    };
+    let ext = real
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    !(real.is_file() && SAFE_EXT.contains(&ext.as_str()))
+}
+
 /// Opens a URL or path with the platform's default handler.
 pub fn open_external(target: &str) -> std::io::Result<()> {
-    let mut cmd = if cfg!(target_os = "macos") {
-        Command::new("open")
-    } else if cfg!(windows) {
-        let mut c = Command::new("cmd");
-        c.args(["/C", "start", ""]);
-        c
-    } else {
-        Command::new("xdg-open")
-    };
-    cmd.arg(target)
-        .stdin(Stdio::null())
+    let mut cmd = system_opener(target);
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map(|_| ())
+}
+
+#[cfg(target_os = "macos")]
+fn system_opener(target: &str) -> Command {
+    let mut c = Command::new("open");
+    c.arg(target);
+    c
+}
+
+/// Not `cmd /C start`, which interprets `&` and `|` in the URL. rundll32 takes
+/// the rest of the command line verbatim, so the target is passed unquoted.
+#[cfg(windows)]
+fn system_opener(target: &str) -> Command {
+    use std::os::windows::process::CommandExt;
+    let mut c = Command::new("rundll32");
+    c.raw_arg(format!("url.dll,FileProtocolHandler {target}"));
+    c
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn system_opener(target: &str) -> Command {
+    let mut c = Command::new("xdg-open");
+    c.arg(target);
+    c
 }
 
 #[cfg(test)]
@@ -122,5 +165,38 @@ mod tests {
             panic!("expected external target");
         };
         assert_eq!(Path::new(&img), Path::new("docs/img/a b.png"));
+    }
+
+    #[test]
+    fn confirms_risky_targets() {
+        assert!(!needs_confirm("https://x.dev/a.sh"));
+        assert!(!needs_confirm("MAILTO:a@b.c"));
+        assert!(needs_confirm("docs/img/missing.png"));
+        assert!(needs_confirm("./run.command"));
+        assert!(needs_confirm("tool.exe"));
+        assert!(needs_confirm("vscode://file/x"));
+        assert!(needs_confirm("docs/bin"));
+        assert_eq!(
+            resolve("MAILTO:a@b.c", None),
+            Target::External("MAILTO:a@b.c".into())
+        );
+    }
+
+    #[test]
+    fn confirm_follows_symlinks() {
+        let dir = std::env::temp_dir().join(format!("mdvw-links-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("a.PNG");
+        let script = dir.join("run.command");
+        std::fs::write(&png, b"x").unwrap();
+        std::fs::write(&script, b"x").unwrap();
+        assert!(!needs_confirm(png.to_str().unwrap()));
+        #[cfg(unix)]
+        {
+            let link = dir.join("shot.png");
+            std::os::unix::fs::symlink(&script, &link).unwrap();
+            assert!(needs_confirm(link.to_str().unwrap()));
+        }
+        std::fs::remove_dir_all(dir).ok();
     }
 }
