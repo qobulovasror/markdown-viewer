@@ -13,7 +13,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   confirmation first. Web links, images and PDFs open directly.
 - Windows: links open through `rundll32` instead of `cmd /C start`, which interpreted `&` in URLs.
 
+### Added
+- Key bindings can be changed with a `[keys]` table in the config file.
+- Count prefixes: `5j`, `3]`, `42G` (line 42), `50%`, `3y` (copy code block 3).
+- Forward navigation (`L`), with `H` as another key for back.
+- Search input has a movable cursor, readline keys (`Ctrl-a/e/w/k/u`) and history (`↑`/`↓`).
+  The fuzzy finder input uses the same editing keys.
+- The help screen scrolls on small terminals and lists the active key bindings.
+
 ### Changed
+- `Esc` no longer quits; it clears the search, link focus or count. Use `q` to quit, or bind
+  `quit = ["q", "esc"]` for the old behavior.
 - Unknown keys in the config file are reported as warnings instead of errors.
 
 ## [0.1.0] - 2026-10-02

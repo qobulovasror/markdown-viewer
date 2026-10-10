@@ -2,7 +2,7 @@
 
 use std::process::Command;
 
-use super::app::{App, HistoryEntry};
+use super::app::App;
 use crate::clipboard;
 use crate::state::Position;
 use crate::watch::FileWatcher;
@@ -68,10 +68,7 @@ impl App {
             .cloned();
         match pos {
             Some(pos) => {
-                self.history.push(HistoryEntry {
-                    source: self.source.clone(),
-                    scroll: self.scroll,
-                });
+                self.record();
                 let line = self.line_of(&pos);
                 self.scroll_to(line);
                 self.notify(format!("Bookmark '{c}'"));

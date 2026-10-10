@@ -133,9 +133,6 @@ fn run() -> Result<()> {
         cfg.watch |= cli.watch;
         cfg.toc |= cli.toc;
         let mut app = tui::App::new(source, theme, depth, &cfg);
-        if !cfg.warnings.is_empty() {
-            app.notify(format!("Config: {}", cfg.warnings.join("; ")));
-        }
         if let Some((root, files)) = dir_root {
             app.set_root(root, files);
             app.panel = Some(tui::Panel::Files);
@@ -191,13 +188,13 @@ fn write_man(w: &mut dyn Write) -> Result<()> {
     man.render_options_section(w)?;
     let esc = |s: &str| s.replace('\\', "\\\\").replace('-', "\\-");
     writeln!(w, ".SH KEYS")?;
-    for (key, desc) in tui::HELP {
-        writeln!(w, ".TP\n\\fB{}\\fR\n{}", esc(key), esc(desc))?;
+    for (key, desc) in tui::Keymap::default().help() {
+        writeln!(w, ".TP\n\\fB{}\\fR\n{}", esc(&key), esc(desc))?;
     }
     writeln!(w, ".SH FILES")?;
     writeln!(
         w,
-        ".TP\n\\fI~/.config/mdvw/config.toml\\fR\nOptional configuration (theme, max_width, mouse, watch, hyperlinks, toc, remember_position, images)."
+        ".TP\n\\fI~/.config/mdvw/config.toml\\fR\nOptional configuration (theme, max_width, mouse, watch, hyperlinks, toc, remember_position, images, and a [keys] table mapping action names to keys)."
     )?;
     writeln!(
         w,

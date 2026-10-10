@@ -153,8 +153,9 @@ fn draw_finder(f: &mut Frame, app: &App, area: Rect) {
     let mut lines = vec![
         TLine::from(vec![
             TSpan::styled(" > ", app.depth.adapt(t.ui_accent)),
-            TSpan::raw(app.finder.input.as_str()),
+            TSpan::raw(app.finder.input.split().0),
             TSpan::styled("▏", app.depth.adapt(t.ui_accent)),
+            TSpan::raw(app.finder.input.split().1),
             TSpan::styled(
                 format!("  {}/{}", app.finder.results.len(), app.files.len()),
                 app.depth.adapt(t.dim),
@@ -370,8 +371,9 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     if app.mode == Mode::Search {
         let line = TLine::from(vec![
             TSpan::styled(" /", accent),
-            TSpan::styled(app.search.input.as_str(), bar),
+            TSpan::styled(app.search.input.split().0, bar),
             TSpan::styled("▏", accent),
+            TSpan::styled(app.search.input.split().1, bar),
             TSpan::styled(
                 format!("  {}", match_count(app)),
                 app.depth.adapt(t.dim.patch(t.ui_bar)),
@@ -400,6 +402,9 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let mut right = String::new();
+    if let Some(c) = app.count {
+        right.push_str(&format!(" {c} │"));
+    }
     if app.watcher.is_some() {
         right.push_str(" ● watch │");
     }
@@ -425,33 +430,6 @@ fn match_count(app: &App) -> String {
         (None, n) => format!("[{n}]"),
     }
 }
-
-pub const HELP: &[(&str, &str)] = &[
-    ("j / k / ↓ / ↑", "Scroll one line"),
-    ("d / u, Ctrl-d / Ctrl-u", "Half page down / up"),
-    ("Space / b, PgDn / PgUp", "Page down / up"),
-    ("g / G, Home / End", "Top / bottom"),
-    ("] / [", "Next / previous heading"),
-    ("t", "Table of contents (h/l switch focus)"),
-    ("F", "File panel (directory mode)"),
-    ("o, Ctrl-p", "Fuzzy find and open a file"),
-    ("/  n / N", "Search (regex, smart-case), next / prev"),
-    ("Tab / Shift-Tab", "Next / previous link"),
-    ("Enter", "Open focused link"),
-    ("Backspace, Ctrl-o", "Go back"),
-    ("T", "Cycle color theme"),
-    ("y 1-9 / y y", "Copy code block [n] / on screen"),
-    ("m <a-z>, ' <a-z>", "Set / jump to bookmark"),
-    ("e", "Edit file in $EDITOR"),
-    ("w", "Watch file for changes"),
-    ("z", "Toggle focus mode / full width"),
-    ("r", "Reload file"),
-    ("M", "Toggle mouse capture (text selection)"),
-    ("Esc", "Clear search / link focus, then quit"),
-    ("i", "Document info and front matter"),
-    ("?", "Toggle this help"),
-    ("q", "Quit"),
-];
 
 fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     let t = &app.theme;
@@ -518,17 +496,38 @@ fn popup(f: &mut Frame, app: &App, area: Rect, title: &str, lines: Vec<TLine>) {
     );
 }
 
-fn draw_help(f: &mut Frame, app: &App, area: Rect) {
+fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
     let t = &app.theme;
-    let key_w = HELP.iter().map(|(k, _)| k.width()).max().unwrap_or(0);
-    let lines: Vec<TLine> = HELP
-        .iter()
+    let rows = app.keymap.help();
+    let key_w = rows.iter().map(|(k, _)| k.width()).max().unwrap_or(0);
+    // Lines are cut to fit so each takes one row and scrolling stays exact.
+    let fit = (area.width as usize).saturating_sub(4);
+    let desc_w = fit.saturating_sub(key_w + 3).max(1);
+    let mut lines: Vec<TLine> = rows
+        .into_iter()
         .map(|(k, d)| {
             TLine::from(vec![
-                TSpan::styled(format!(" {k:<key_w$}  "), app.depth.adapt(t.ui_accent)),
-                TSpan::raw(*d),
+                TSpan::styled(
+                    truncate(&format!(" {k:<key_w$}  "), fit),
+                    app.depth.adapt(t.ui_accent),
+                ),
+                TSpan::raw(truncate(d, desc_w)),
             ])
         })
         .collect();
-    popup(f, app, area, " Keys ", lines);
+    lines.push(TLine::raw(""));
+    lines.push(TLine::styled(
+        truncate(" Prefix a count: 5j, 3], 42G (line 42), 50%", fit),
+        app.depth.adapt(t.dim),
+    ));
+    let visible = area.height.saturating_sub(2) as usize;
+    let max = lines.len().saturating_sub(visible);
+    app.help_scroll = app.help_scroll.min(max);
+    let title = if max > 0 {
+        " Keys (j/k to scroll) "
+    } else {
+        " Keys "
+    };
+    let lines = lines.split_off(app.help_scroll);
+    popup(f, app, area, title, lines);
 }

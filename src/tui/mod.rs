@@ -4,6 +4,8 @@ mod app;
 mod extras;
 mod files_panel;
 mod images;
+mod input;
+mod keymap;
 mod keys;
 mod ui;
 
@@ -14,7 +16,7 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
 
 pub use app::{App, Panel, Source};
-pub use ui::HELP;
+pub use keymap::Keymap;
 
 pub fn run(mut app: App, images: bool) -> Result<()> {
     let mut terminal = ratatui::init();
@@ -74,3 +76,6 @@ pub fn run(mut app: App, images: bool) -> Result<()> {
     ratatui::restore();
     result
 }
+
+#[cfg(test)]
+mod tests;

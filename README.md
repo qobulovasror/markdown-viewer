@@ -130,14 +130,15 @@ mdvw -p --width 80 --color always x.md | less -R
 | `d` `u`, `Ctrl-d` `Ctrl-u` | Half page down / up |
 | `Space` `b`, `PgDn` `PgUp` | Page down / up |
 | `g` `G`, `Home` `End` | Top / bottom |
+| *n* before a key | Repeat it (`5j`, `3]`); `42G` goes to line 42, `50%` to the middle |
 | `]` `[` | Next / previous heading |
 | `t` | Table of contents (`h`/`l` move focus between panel and text) |
 | `F` | File panel |
 | `o`, `Ctrl-p` | Fuzzy find and open a file |
-| `/` `n` `N` | Search (regex, smart-case), next / previous match |
+| `/` `n` `N` | Search (regex, smart-case), next / previous match; `↑` `↓` recall earlier searches |
 | `Tab` `Shift-Tab` | Next / previous link |
 | `Enter` | Open the focused link |
-| `Backspace`, `Ctrl-o` | Go back |
+| `Backspace`, `Ctrl-o`, `H` / `L` | Go back / forward |
 | `y` + `1-9`, `yy` | Copy code block *n* / the block on screen |
 | `m` + letter, `'` + letter | Set / jump to a bookmark |
 | `e` | Edit in `$EDITOR` at the current heading |
@@ -148,9 +149,13 @@ mdvw -p --width 80 --color always x.md | less -R
 | `M` | Toggle mouse capture (to select text with the mouse) |
 | `r` | Reload |
 | `?` | Help |
-| `q`, `Esc` | Quit (`Esc` first clears the search or link focus) |
+| `Esc` | Clear the search, link focus or count |
+| `q` | Quit |
 
-The mouse wheel scrolls. Clicking a link opens it, and clicking a panel entry jumps to it.
+The mouse wheel scrolls. Clicking a link opens it, and clicking a panel entry jumps to it. Links to
+local files that mdvw cannot show (scripts, apps) ask for confirmation before they are opened.
+
+Every key can be changed in the config file (see below).
 
 </details>
 
@@ -168,7 +173,16 @@ hyperlinks = true
 toc = false             # open the table of contents on start
 remember_position = true
 images = true
+
+[keys]                  # action = key or [keys]; replaces that action's defaults
+quit = ["q", "esc"]
+down = ["j", "down", "ctrl-n"]
 ```
+
+Action names are listed in `mdvw --man` and the `?` screen. Keys are written like `j`, `G`,
+`ctrl-d`, `alt-x`, `shift-tab`, `space`, `enter`, `esc`, `pagedown` or `f5`. Unknown keys and
+actions are reported as warnings, not errors. Keys inside the contents and file panels
+(`j` `k` `g` `G` `Enter` `Space` `l` `Esc` `Tab`) are fixed.
 
 Reading positions and bookmarks are stored in `~/.local/state/mdvw/state.json`.
 

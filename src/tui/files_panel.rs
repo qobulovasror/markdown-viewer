@@ -7,7 +7,7 @@ use crate::files;
 
 #[derive(Debug, Default)]
 pub struct Finder {
-    pub input: String,
+    pub input: super::input::LineInput,
     /// Indices into `App::files`, best match first.
     pub results: Vec<usize>,
     pub selected: usize,
@@ -111,7 +111,7 @@ impl App {
     }
 
     pub fn finder_update(&mut self) {
-        self.finder.results = files::fuzzy(&self.files, &self.finder.input);
+        self.finder.results = files::fuzzy(&self.files, &self.finder.input.text);
         self.finder.selected = 0;
     }
 

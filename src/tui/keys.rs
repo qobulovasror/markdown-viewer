@@ -7,6 +7,8 @@ use ratatui::layout::{Position, Rect};
 use unicode_width::UnicodeWidthStr;
 
 use super::app::{App, Focus, Mode, Panel, Pending};
+use super::input::Edit;
+use super::keymap::Action;
 
 pub fn handle_key(app: &mut App, key: KeyEvent) {
     if key.kind == KeyEventKind::Release {
@@ -19,7 +21,8 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
     match app.mode {
-        Mode::Help | Mode::Info => {
+        Mode::Help => help(app, key),
+        Mode::Info => {
             if matches!(
                 key.code,
                 KeyCode::Esc | KeyCode::Char('q' | '?' | 'i') | KeyCode::Enter
@@ -30,12 +33,16 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::Search => search_input(app, key),
         Mode::Finder => finder(app, key),
         Mode::Normal if app.focus == Focus::Panel && app.panel == Some(Panel::Toc) => {
-            if !toc(app, key) {
+            if toc(app, key) {
+                app.count = None;
+            } else {
                 normal(app, key);
             }
         }
         Mode::Normal if app.focus == Focus::Panel && app.panel == Some(Panel::Files) => {
-            if !files(app, key) {
+            if files(app, key) {
+                app.count = None;
+            } else {
                 normal(app, key);
             }
         }
@@ -43,26 +50,37 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn help(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Char('j') | KeyCode::Down => app.help_scroll += 1,
+        KeyCode::Char('k') | KeyCode::Up => app.help_scroll = app.help_scroll.saturating_sub(1),
+        KeyCode::Char(' ' | 'd') | KeyCode::PageDown => app.help_scroll += 10,
+        KeyCode::Char('b' | 'u') | KeyCode::PageUp => {
+            app.help_scroll = app.help_scroll.saturating_sub(10)
+        }
+        KeyCode::Char('g') | KeyCode::Home => app.help_scroll = 0,
+        _ => app.mode = Mode::Normal,
+    }
+}
+
 fn search_input(app: &mut App, key: KeyEvent) {
     match key.code {
         KeyCode::Enter => app.finish_search(true),
         KeyCode::Esc => app.finish_search(false),
-        KeyCode::Backspace => {
-            if app.search.input.pop().is_none() {
-                app.finish_search(false);
-                return;
+        KeyCode::Backspace if app.search.input.is_empty() => app.finish_search(false),
+        KeyCode::Up | KeyCode::Down => {
+            let back = key.code == KeyCode::Up;
+            if let Some(text) = app.search.history.step(back, &app.search.input.text) {
+                app.search.input.set(&text);
+                app.update_search_input();
             }
-            app.update_search_input();
         }
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.search.input.clear();
-            app.update_search_input();
+        _ => {
+            if app.search.input.handle(&key) == Edit::Changed {
+                app.search.history.reset();
+                app.update_search_input();
+            }
         }
-        KeyCode::Char(c) => {
-            app.search.input.push(c);
-            app.update_search_input();
-        }
-        _ => {}
     }
 }
 
@@ -75,19 +93,11 @@ fn finder(app: &mut App, key: KeyEvent) {
         KeyCode::Char('n' | 'j') if ctrl => app.finder_move(1),
         KeyCode::Up | KeyCode::BackTab => app.finder_move(-1),
         KeyCode::Char('p' | 'k') if ctrl => app.finder_move(-1),
-        KeyCode::Char('u') if ctrl => {
-            app.finder.input.clear();
-            app.finder_update();
+        _ => {
+            if app.finder.input.handle(&key) == Edit::Changed {
+                app.finder_update();
+            }
         }
-        KeyCode::Backspace => {
-            app.finder.input.pop();
-            app.finder_update();
-        }
-        KeyCode::Char(c) if !ctrl => {
-            app.finder.input.push(c);
-            app.finder_update();
-        }
-        _ => {}
     }
 }
 
@@ -145,7 +155,7 @@ fn pending(app: &mut App, p: Pending, key: KeyEvent) {
     match p {
         Pending::Mark if c.is_ascii_alphanumeric() => app.set_mark(c),
         Pending::Jump if c.is_ascii_alphanumeric() => app.jump_mark(c),
-        Pending::Yank if c == 'y' => app.copy_code(None),
+        Pending::Yank if app.keymap.action(&key) == Some(Action::CopyCode) => app.copy_code(None),
         Pending::Yank if c.is_ascii_digit() && c != '0' => {
             app.copy_code(c.to_digit(10).map(|d| d as usize))
         }
@@ -154,70 +164,114 @@ fn pending(app: &mut App, p: Pending, key: KeyEvent) {
 }
 
 fn normal(app: &mut App, key: KeyEvent) {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let action = app.keymap.action(&key);
+    // Digits build a count (`5j`, `50%`); a bound digit only starts an action.
+    if let KeyCode::Char(c @ '0'..='9') = key.code
+        && (action.is_none() || app.count.is_some())
+        && !key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+    {
+        let d = c as usize - '0' as usize;
+        app.count = Some(
+            app.count
+                .unwrap_or(0)
+                .saturating_mul(10)
+                .saturating_add(d)
+                .min(999_999),
+        );
+        return;
+    }
+    let count = app.count.take();
+    if let Some(a) = action {
+        run(app, a, count);
+    }
+}
+
+/// Performs `action`; `count` repeats motions or picks a line / percent.
+pub fn run(app: &mut App, action: Action, count: Option<usize>) {
+    let n = count.unwrap_or(1).max(1) as isize;
     let page = app.view_height.max(1) as isize;
     let half = (page / 2).max(1);
-    match key.code {
-        KeyCode::Char('c') if ctrl => app.quit = true,
-        KeyCode::Char('q') => app.quit = true,
-        KeyCode::Esc => {
-            if app.link_focus.is_some() {
+    let repeat = |app: &mut App, f: fn(&mut App)| {
+        for _ in 0..n.min(10_000) {
+            f(app);
+        }
+    };
+    match action {
+        Action::Quit => app.quit = true,
+        Action::Cancel => {
+            if count.is_some() {
+                app.notify("Count cleared");
+            } else if app.link_focus.is_some() {
                 app.link_focus = None;
             } else if !app.search.query.is_empty() {
                 app.clear_search();
             } else {
-                app.quit = true;
+                let q = app.keymap.label(Action::Quit);
+                app.notify(format!("Press {q} to quit"));
             }
         }
-        KeyCode::Char('j') | KeyCode::Down => app.scroll_by(1),
-        KeyCode::Char('k') | KeyCode::Up => app.scroll_by(-1),
-        KeyCode::Enter => match app.focused_link_id() {
-            Some(id) => app.follow_link(id),
-            None => app.scroll_by(1),
+        Action::Down => app.scroll_by(n),
+        Action::Up => app.scroll_by(-n),
+        Action::HalfDown => app.scroll_by(half.saturating_mul(n)),
+        Action::HalfUp => app.scroll_by(-half.saturating_mul(n)),
+        Action::PageDown => app.scroll_by(page.saturating_mul(n)),
+        Action::PageUp => app.scroll_by(-page.saturating_mul(n)),
+        Action::Top | Action::Bottom => match count {
+            Some(line) => app.goto_line(line),
+            None if action == Action::Top => app.scroll_to(0),
+            None => app.scroll_to(usize::MAX),
         },
-        KeyCode::Char('d') if ctrl => app.scroll_by(half),
-        KeyCode::Char('u') if ctrl => app.scroll_by(-half),
-        KeyCode::Char('f') if ctrl => app.scroll_by(page),
-        KeyCode::Char('b') if ctrl => app.scroll_by(-page),
-        KeyCode::Char('o') if ctrl => app.back(),
-        KeyCode::Char('d') => app.scroll_by(half),
-        KeyCode::Char('u') => app.scroll_by(-half),
-        KeyCode::Char(' ' | 'f') | KeyCode::PageDown => app.scroll_by(page),
-        KeyCode::Char('b') | KeyCode::PageUp => app.scroll_by(-page),
-        KeyCode::Char('g') | KeyCode::Home => app.scroll_to(0),
-        KeyCode::Char('G') | KeyCode::End => app.scroll_to(usize::MAX),
-        KeyCode::Char(']') => app.jump_heading(true),
-        KeyCode::Char('[') => app.jump_heading(false),
-        KeyCode::Char('/') => app.start_search(),
-        KeyCode::Char('n') => app.next_match(true),
-        KeyCode::Char('N') => app.next_match(false),
-        KeyCode::Tab => app.cycle_link(true),
-        KeyCode::BackTab => app.cycle_link(false),
-        KeyCode::Backspace => app.back(),
-        KeyCode::Char('t') => app.toggle_toc(),
-        KeyCode::Char('h') | KeyCode::Left if app.panel.is_some() => app.focus = Focus::Panel,
-        KeyCode::Char('F') => app.toggle_files(),
-        KeyCode::Char('p') if ctrl => app.open_finder(),
-        KeyCode::Char('o') => app.open_finder(),
-        KeyCode::Char('?') => app.mode = Mode::Help,
-        KeyCode::Char('i') => app.mode = Mode::Info,
-        KeyCode::Char('T') => app.cycle_theme(),
-        KeyCode::Char('m') => {
+        Action::Percent => match count {
+            Some(p) => app.goto_percent(p),
+            None => app.notify("Type a number first, e.g. 50%"),
+        },
+        Action::NextHeading => repeat(app, |a| a.jump_heading(true)),
+        Action::PrevHeading => repeat(app, |a| a.jump_heading(false)),
+        Action::Toc => app.toggle_toc(),
+        Action::Files => app.toggle_files(),
+        Action::Finder => app.open_finder(),
+        Action::FocusPanel => {
+            if app.panel.is_some() {
+                app.focus = Focus::Panel;
+            }
+        }
+        Action::Search => app.start_search(),
+        Action::NextMatch => repeat(app, |a| a.next_match(true)),
+        Action::PrevMatch => repeat(app, |a| a.next_match(false)),
+        Action::NextLink => repeat(app, |a| a.cycle_link(true)),
+        Action::PrevLink => repeat(app, |a| a.cycle_link(false)),
+        Action::Follow => match app.focused_link_id() {
+            Some(id) => app.follow_link(id),
+            None => app.scroll_by(n),
+        },
+        Action::Back => repeat(app, App::back),
+        Action::Forward => repeat(app, App::forward),
+        Action::Mark => {
             app.pending = Some(Pending::Mark);
             app.notify("Set bookmark: press a letter");
         }
-        KeyCode::Char('\'') => {
+        Action::JumpMark => {
             app.pending = Some(Pending::Jump);
             app.notify("Jump to bookmark: press a letter");
         }
-        KeyCode::Char('y') => {
-            app.pending = Some(Pending::Yank);
-            app.notify("Copy code: 1-9 block number, y = block on screen");
-        }
-        KeyCode::Char('e') => app.open_editor = true,
-        KeyCode::Char('w') => app.toggle_watch(),
-        KeyCode::Char('z') => app.toggle_full_width(),
-        KeyCode::Char('M') => {
+        Action::CopyCode => match count {
+            Some(c) => app.copy_code(Some(c)),
+            None => {
+                app.pending = Some(Pending::Yank);
+                app.notify("Copy code: 1-9 block number, y = block on screen");
+            }
+        },
+        Action::Edit => app.open_editor = true,
+        Action::Reload => match app.reload() {
+            Ok(()) => app.notify("Reloaded"),
+            Err(e) => app.notify(format!("Reload failed: {e:#}")),
+        },
+        Action::Watch => app.toggle_watch(),
+        Action::FocusMode => app.toggle_full_width(),
+        Action::Theme => app.cycle_theme(),
+        Action::Mouse => {
             app.mouse = !app.mouse;
             let state = if app.mouse {
                 "on"
@@ -226,15 +280,16 @@ fn normal(app: &mut App, key: KeyEvent) {
             };
             app.notify(format!("Mouse {state}"));
         }
-        KeyCode::Char('r') => match app.reload() {
-            Ok(()) => app.notify("Reloaded"),
-            Err(e) => app.notify(format!("Reload failed: {e:#}")),
-        },
-        _ => {}
+        Action::Info => app.mode = Mode::Info,
+        Action::Help => {
+            app.help_scroll = 0;
+            app.mode = Mode::Help;
+        }
     }
 }
 
 pub fn handle_mouse(app: &mut App, m: MouseEvent) {
+    app.count = None;
     // A click cancels a pending prompt instead of acting behind it.
     if matches!(m.kind, MouseEventKind::Down(_)) && app.pending.is_some() {
         app.cancel_pending();

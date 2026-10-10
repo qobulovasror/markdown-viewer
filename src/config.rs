@@ -1,5 +1,6 @@
 //! Optional user configuration (`~/.config/mdvw/config.toml`).
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -21,6 +22,8 @@ pub struct Config {
     pub remember_position: bool,
     /// Show images when the terminal supports Kitty, iTerm2 or Sixel graphics.
     pub images: bool,
+    /// Key bindings by action name, e.g. `quit = ["q", "esc"]`.
+    pub keys: BTreeMap<String, KeyList>,
     /// Problems found while loading, e.g. unknown keys (shown, not fatal).
     #[serde(skip)]
     pub warnings: Vec<String>,
@@ -37,7 +40,25 @@ impl Default for Config {
             toc: false,
             remember_position: true,
             images: true,
+            keys: BTreeMap::new(),
             warnings: Vec::new(),
+        }
+    }
+}
+
+/// One key or a list of keys.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum KeyList {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl KeyList {
+    pub fn as_slice(&self) -> &[String] {
+        match self {
+            KeyList::One(s) => std::slice::from_ref(s),
+            KeyList::Many(v) => v,
         }
     }
 }
@@ -84,6 +105,7 @@ const KEYS: &[&str] = &[
     "toc",
     "remember_position",
     "images",
+    "keys",
 ];
 
 impl Config {
@@ -119,12 +141,17 @@ mod tests {
         assert_eq!(c.warnings, ["unknown config key 'colour'"]);
         assert!(!c.mouse);
         assert!(Config::parse("mouse = \"yes\"").is_err());
+        let c = Config::parse("[keys]\nquit = \"x\"\ndown = [\"j\", \"ctrl-n\"]\n").unwrap();
+        assert_eq!(c.keys["down"].as_slice(), ["j", "ctrl-n"]);
     }
 
     #[test]
     fn keys_list_is_complete() {
+        let mut keys = BTreeMap::new();
+        keys.insert("quit".into(), KeyList::One("q".into()));
         let cfg = Config {
             theme: Some("x".into()),
+            keys,
             ..Default::default()
         };
         let table = toml::Table::try_from(cfg).unwrap();

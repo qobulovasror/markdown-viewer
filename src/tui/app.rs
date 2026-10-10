@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
+use super::input::{History, LineInput};
+use super::keymap::Keymap;
 use crate::color::ColorDepth;
 use crate::config::Config;
 use crate::layout::{self, Rendered};
@@ -72,7 +74,8 @@ pub enum Panel {
 
 #[derive(Debug, Default)]
 pub struct SearchState {
-    pub input: String,
+    pub input: LineInput,
+    pub history: History,
     pub query: String,
     pub matches: Vec<Match>,
     pub current: Option<usize>,
@@ -123,6 +126,12 @@ pub struct App {
     pub link_refs: Vec<LinkRef>,
     pub link_focus: Option<usize>,
     pub(super) history: Vec<HistoryEntry>,
+    /// Entries undone by `back`, replayed by `forward`.
+    pub(super) forward: Vec<HistoryEntry>,
+    pub keymap: Keymap,
+    /// Numeric prefix typed before a command (`5j`, `50%`).
+    pub count: Option<usize>,
+    pub help_scroll: usize,
     /// Screen areas from the last draw, for mouse hit-testing.
     pub text_rect: ratatui::layout::Rect,
     pub panel_rect: Option<ratatui::layout::Rect>,
@@ -162,6 +171,8 @@ impl App {
             .as_deref()
             .and_then(|p| state.get(p))
             .map(|f| f.position.clone());
+        let (keymap, key_warnings) = Keymap::new(&cfg.keys);
+        let warnings: Vec<String> = cfg.warnings.iter().chain(&key_warnings).cloned().collect();
         let mut app = App {
             theme,
             depth,
@@ -182,6 +193,10 @@ impl App {
             link_refs: Vec::new(),
             link_focus: None,
             history: Vec::new(),
+            forward: Vec::new(),
+            keymap,
+            count: None,
+            help_scroll: 0,
             text_rect: Default::default(),
             panel_rect: None,
             root: None,
@@ -206,6 +221,9 @@ impl App {
         };
         if cfg.watch {
             app.toggle_watch();
+        }
+        if !warnings.is_empty() {
+            app.notify(format!("Config: {}", warnings.join("; ")));
         }
         app
     }
@@ -296,6 +314,7 @@ impl App {
             source: prev,
             scroll: self.scroll,
         });
+        self.forward.clear();
         self.reparse();
         self.relayout(self.layout_width.max(20));
         self.scroll = 0;
@@ -303,15 +322,51 @@ impl App {
         self.rewatch();
     }
 
+    /// Saves the current place so `back` can return to it.
+    pub(super) fn record(&mut self) {
+        self.history.push(HistoryEntry {
+            source: self.source.clone(),
+            scroll: self.scroll,
+        });
+        self.forward.clear();
+    }
+
     pub fn back(&mut self) {
         let Some(entry) = self.history.pop() else {
-            self.notify("No previous document");
+            self.notify("No previous location");
             return;
         };
-        let same = entry.source.path == self.source.path && entry.source.text == self.source.text;
+        self.forward.push(HistoryEntry {
+            source: self.source.clone(),
+            scroll: self.scroll,
+        });
+        self.restore_entry(entry);
+    }
+
+    pub fn forward(&mut self) {
+        let Some(entry) = self.forward.pop() else {
+            self.notify("No next location");
+            return;
+        };
+        self.history.push(HistoryEntry {
+            source: self.source.clone(),
+            scroll: self.scroll,
+        });
+        self.restore_entry(entry);
+    }
+
+    fn restore_entry(&mut self, entry: HistoryEntry) {
+        let mut source = entry.source;
+        // Files may have changed since; show their current text.
+        if let Some(path) = source.path.clone()
+            && let Ok(fresh) = Source::from_file(&path)
+        {
+            source.text = fresh.text;
+        }
+        let same = source.path == self.source.path && source.text == self.source.text;
         if !same {
             self.save_state();
-            self.source = entry.source;
+            self.source = source;
             self.reparse();
             self.relayout(self.layout_width.max(20));
             self.rewatch();
@@ -332,10 +387,7 @@ impl App {
         match target {
             Some(line) => {
                 if record {
-                    self.history.push(HistoryEntry {
-                        source: self.source.clone(),
-                        scroll: self.scroll,
-                    });
+                    self.record();
                 }
                 self.scroll_to(line);
                 true
@@ -449,12 +501,13 @@ impl App {
     pub fn start_search(&mut self) {
         self.mode = Mode::Search;
         self.search.input.clear();
+        self.search.history.reset();
         self.search.origin = self.scroll;
     }
 
     /// Live update while typing.
     pub fn update_search_input(&mut self) {
-        let input = self.search.input.clone();
+        let input = self.search.input.text.clone();
         self.set_query(&input);
         if self.search.current.is_none() {
             self.scroll_to(self.search.origin);
@@ -463,6 +516,9 @@ impl App {
 
     pub fn finish_search(&mut self, accept: bool) {
         self.mode = Mode::Normal;
+        if accept {
+            self.search.history.push(&self.search.input.text);
+        }
         if !accept {
             self.set_query("");
             self.scroll_to(self.search.origin);
@@ -594,6 +650,16 @@ impl App {
     pub fn scroll_by(&mut self, delta: isize) {
         self.scroll = self.scroll.saturating_add_signed(delta);
         self.clamp_scroll();
+    }
+
+    /// Goes to rendered line `n` (1-based), as with `42G`.
+    pub fn goto_line(&mut self, n: usize) {
+        self.scroll_to(n.saturating_sub(1));
+    }
+
+    pub fn goto_percent(&mut self, p: usize) {
+        let line = self.max_scroll() * p.min(100) / 100;
+        self.scroll_to(line);
     }
 
     pub fn scroll_to(&mut self, line: usize) {
