@@ -30,18 +30,19 @@ pub fn compile(query: &str) -> Option<Regex> {
 }
 
 pub fn find_all(lines: &[Line], re: &Regex) -> Vec<Match> {
+    let texts: Vec<String> = lines.iter().map(Line::text).collect();
+    find_in_texts(&texts, re)
+}
+
+/// Like `find_all`, over precomputed `Line::text()` strings.
+pub fn find_in_texts(texts: &[String], re: &Regex) -> Vec<Match> {
     let mut out = Vec::new();
-    for (n, line) in lines.iter().enumerate() {
-        let text = line.text();
-        out.extend(
-            re.find_iter(&text)
-                .filter(|m| !m.is_empty())
-                .map(|m| Match {
-                    line: n,
-                    start: m.start(),
-                    end: m.end(),
-                }),
-        );
+    for (n, text) in texts.iter().enumerate() {
+        out.extend(re.find_iter(text).filter(|m| !m.is_empty()).map(|m| Match {
+            line: n,
+            start: m.start(),
+            end: m.end(),
+        }));
     }
     out
 }

@@ -6,6 +6,7 @@ use ratatui::style::{Color, Modifier, Style};
 
 use crate::color::ColorDepth;
 use crate::layout::Rendered;
+use crate::parser::sanitize;
 
 pub struct AnsiOptions {
     pub depth: ColorDepth,
@@ -21,18 +22,23 @@ pub fn render(doc: &Rendered, opts: &AnsiOptions) -> String {
             let url = span
                 .link
                 .map(|i| doc.links[i].as_str())
-                .filter(|u| opts.hyperlinks && !plain && is_external(u));
+                // A control character could end the OSC 8 sequence early.
+                .filter(|u| {
+                    opts.hyperlinks && !plain && is_external(u) && !u.contains(char::is_control)
+                });
             if let Some(u) = url {
                 let _ = write!(out, "\x1b]8;;{u}\x1b\\");
             }
+            // Document text must never reach the terminal as escape sequences.
+            let text = sanitize(&span.text);
             if plain {
-                out.push_str(&span.text);
+                out.push_str(&text);
             } else {
                 let sgr = sgr(opts.depth.adapt(span.style));
                 if sgr.is_empty() {
-                    out.push_str(&span.text);
+                    out.push_str(&text);
                 } else {
-                    let _ = write!(out, "\x1b[{sgr}m{}\x1b[0m", span.text);
+                    let _ = write!(out, "\x1b[{sgr}m{text}\x1b[0m");
                 }
             }
             if url.is_some() {
@@ -48,7 +54,10 @@ pub fn render(doc: &Rendered, opts: &AnsiOptions) -> String {
 }
 
 pub fn is_external(url: &str) -> bool {
-    url.contains("://") || url.starts_with("mailto:")
+    url.contains("://")
+        || url
+            .get(..7)
+            .is_some_and(|s| s.eq_ignore_ascii_case("mailto:"))
 }
 
 fn sgr(style: Style) -> String {
@@ -116,5 +125,31 @@ mod tests {
             .add_modifier(Modifier::BOLD);
         assert_eq!(sgr(s), "1;38;2;1;2;3");
         assert_eq!(color_code(Color::LightRed, true), "101");
+    }
+
+    #[test]
+    fn no_raw_control_characters_reach_output() {
+        let theme = crate::theme::Theme::default_dark();
+        for depth in [ColorDepth::None, ColorDepth::TrueColor] {
+            let out = crate::render_to_string(
+                "a &#x1b;]0;pwn&#7; b \x1b[2J\rx\n\n[x](https://e.com/&#x1b;\\)\n\n<p>&#x9b;2J</p>\n\n```\n\x1b[31m\n```\n",
+                crate::parser::Format::Markdown,
+                &crate::PrintOptions {
+                    width: 60,
+                    theme: &theme,
+                    depth,
+                    hyperlinks: true,
+                },
+            );
+            // Our own SGR codes are fine; only `ESC [` may appear.
+            let stray = out
+                .char_indices()
+                .filter(|&(i, c)| {
+                    c.is_control() && c != '\n' && !(c == '\x1b' && out[i + 1..].starts_with('['))
+                })
+                .count();
+            assert_eq!(stray, 0, "{out:?}");
+            assert!(out.contains('␛') && !out.contains('\u{9b}'));
+        }
     }
 }

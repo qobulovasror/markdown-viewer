@@ -3,7 +3,10 @@
 mod app;
 mod extras;
 mod files_panel;
+mod grep;
 mod images;
+mod input;
+mod keymap;
 mod keys;
 mod ui;
 
@@ -14,12 +17,13 @@ use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
 use crossterm::execute;
 
 pub use app::{App, Panel, Source};
-pub use ui::HELP;
+pub use keymap::Keymap;
 
-pub fn run(mut app: App, images: bool) -> Result<()> {
+/// `images`: show inline images; `remote_images`: also download web images.
+pub fn run(mut app: App, images: bool, remote_images: bool) -> Result<()> {
     let mut terminal = ratatui::init();
     if images {
-        app.images = images::Images::detect();
+        app.images = images::Images::detect(remote_images);
     }
     // ratatui::init's hook restores the terminal; we also release the mouse.
     let hook = std::panic::take_hook();
@@ -64,6 +68,10 @@ pub fn run(mut app: App, images: bool) -> Result<()> {
                     }
                 }
             }
+            if app.fetch.is_some() {
+                terminal.draw(|f| ui::draw(f, &mut app))?;
+                app.run_fetch();
+            }
             app.tick();
         }
         app.save_state();
@@ -74,3 +82,6 @@ pub fn run(mut app: App, images: bool) -> Result<()> {
     ratatui::restore();
     result
 }
+
+#[cfg(test)]
+mod tests;

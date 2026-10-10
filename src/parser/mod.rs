@@ -10,6 +10,7 @@ mod org;
 mod rst;
 mod text;
 
+use std::borrow::Cow;
 use std::path::Path;
 
 pub use ast::*;
@@ -77,6 +78,11 @@ fn postprocess_block(b: &mut Block) {
                 *b = heading;
                 return;
             }
+            if let Some(table) = html::to_table(h) {
+                *b = table;
+                postprocess_block(b);
+                return;
+            }
             let inl = html::to_inlines(h);
             *b = if inl.is_empty() {
                 Block::Plain(Vec::new())
@@ -109,6 +115,167 @@ fn postprocess_block(b: &mut Block) {
         }
         Block::CodeBlock { .. } | Block::Math(_) | Block::Rule => {}
     }
+}
+
+/// The part of `doc` under the heading named `name` (its title, ignoring case
+/// and punctuation, or its anchor id), up to the next heading of the same or a
+/// higher level. A title that merely contains `name` is used if nothing matches exactly.
+pub fn section(doc: &Document, name: &str) -> Option<Document> {
+    let (start, level) = section_start(doc, name)?;
+    let end = doc.blocks[start + 1..]
+        .iter()
+        .position(|b| matches!(b, Block::Heading { level: l, .. } if *l <= level))
+        .map_or(doc.blocks.len(), |p| start + 1 + p);
+    Some(Document {
+        front_matter: None,
+        blocks: doc.blocks[start..end].to_vec(),
+    })
+}
+
+/// Anchor id of the heading `section` would pick for `name`.
+pub fn section_id(doc: &Document, name: &str) -> Option<String> {
+    let (i, _) = section_start(doc, name)?;
+    match &doc.blocks[i] {
+        Block::Heading { id, .. } => Some(id.clone()),
+        _ => None,
+    }
+}
+
+/// Block index and level of the heading matching `name`.
+fn section_start(doc: &Document, name: &str) -> Option<(usize, u8)> {
+    let key = letters(name);
+    let heads: Vec<(usize, u8, String, &str)> = doc
+        .blocks
+        .iter()
+        .enumerate()
+        .filter_map(|(i, b)| match b {
+            Block::Heading { level, id, content } => {
+                Some((i, *level, letters(&plain_text(content)), id.as_str()))
+            }
+            _ => None,
+        })
+        .collect();
+    // A name without letters or digits only matches an id exactly.
+    heads
+        .iter()
+        .find(|(_, _, t, id)| *id == name || (!key.is_empty() && *t == key))
+        .or_else(|| {
+            heads
+                .iter()
+                .find(|(_, _, t, _)| !key.is_empty() && t.contains(&key))
+        })
+        .map(|&(i, l, _, _)| (i, l))
+}
+
+fn letters(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Most nested includes followed.
+const MAX_INCLUDE_DEPTH: usize = 4;
+
+/// Replaces AsciiDoc `include::file[]` and RST `.. include:: file` lines with
+/// the files' text. Only files inside the document's folder are read, like
+/// Asciidoctor's safe mode; others leave a visible note.
+pub fn expand_includes<'a>(src: &'a str, format: Format, path: &Path) -> Cow<'a, str> {
+    if !matches!(format, Format::AsciiDoc | Format::Rst) {
+        return Cow::Borrowed(src);
+    }
+    let Some(root) = path.parent().and_then(|d| {
+        let d = if d.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            d
+        };
+        d.canonicalize().ok()
+    }) else {
+        return Cow::Borrowed(src);
+    };
+    let mut budget = 10usize << 20;
+    match expand(src, format, &root, &root, 0, &mut budget) {
+        Some(s) => Cow::Owned(s),
+        None => Cow::Borrowed(src),
+    }
+}
+
+/// `None` when nothing was included.
+fn expand(
+    src: &str,
+    format: Format,
+    root: &Path,
+    dir: &Path,
+    depth: usize,
+    budget: &mut usize,
+) -> Option<String> {
+    // Directives start in column 0; indented ones are literal text.
+    let target = |line: &str| -> Option<String> {
+        let t = line.trim_end();
+        let name = match format {
+            Format::AsciiDoc => t.strip_prefix("include::")?.split('[').next()?,
+            _ => t.strip_prefix(".. include::")?,
+        };
+        Some(name.trim().to_string()).filter(|n| !n.is_empty())
+    };
+    if !src.lines().any(|l| target(l).is_some()) {
+        return None;
+    }
+    let mut out = String::with_capacity(src.len());
+    for line in src.lines() {
+        let Some(name) = target(line) else {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        };
+        let file = dir.join(&name).canonicalize().ok();
+        let text = file
+            .as_ref()
+            .filter(|f| f.starts_with(root) && depth < MAX_INCLUDE_DEPTH)
+            // Regular files within the budget only (a FIFO would block the read).
+            .filter(|f| {
+                std::fs::metadata(f).is_ok_and(|m| m.is_file() && m.len() <= *budget as u64)
+            })
+            .and_then(|f| std::fs::read(f).ok())
+            .filter(|b| b.len() <= *budget);
+        match (text, file) {
+            (Some(bytes), Some(f)) => {
+                *budget -= bytes.len();
+                let text = String::from_utf8_lossy(&bytes).into_owned();
+                let sub = f.parent().unwrap_or(root);
+                let text = expand(&text, format, root, sub, depth + 1, budget).unwrap_or(text);
+                out.push_str(&text);
+                if !text.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+            _ => {
+                // Not in brackets: AsciiDoc would take that as an attribute line.
+                out.push_str(&format!("(include not shown: {name})\n"));
+            }
+        }
+    }
+    Some(out)
+}
+
+/// Makes control characters visible so documents cannot send escape sequences
+/// to the terminal: ESC becomes `␛`, C1 controls become `�`. Only tab stays.
+pub fn sanitize(s: &str) -> Cow<'_, str> {
+    let bad = |c: char| c.is_control() && c != '\t';
+    if !s.contains(bad) {
+        return Cow::Borrowed(s);
+    }
+    Cow::Owned(
+        s.chars()
+            .map(|c| match c {
+                c if !bad(c) => c,
+                '\u{7f}' => '\u{2421}',
+                c if (c as u32) < 0x20 => char::from_u32(0x2400 + c as u32).unwrap_or('\u{fffd}'),
+                _ => '\u{fffd}',
+            })
+            .collect(),
+    )
 }
 
 /// `<h1 ...>Title</h1>` blocks become real headings (shown in the TOC).
@@ -259,6 +426,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn control_characters_are_made_visible() {
+        assert_eq!(sanitize("a\tb"), "a\tb");
+        assert_eq!(sanitize("x\x1b]0;t\x07\u{9b}\x7f\r"), "x␛]0;t␇\u{fffd}␡␍");
+    }
+
+    #[test]
     fn emoji_shortcodes() {
         assert_eq!(emoji("ship it :rocket: now"), "ship it 🚀 now");
         assert_eq!(
@@ -297,6 +470,96 @@ mod tests {
         assert!(matches!(&p[0], Inline::Strong(_)));
         assert_eq!(plain_text(p), "▸ Keys");
         assert_eq!(doc.blocks.len(), 3);
+    }
+
+    #[test]
+    fn sections() {
+        let doc = parse(
+            "# A\n\na\n\n## Install it\n\nx\n\n### Deep\n\ny\n\n## Usage\n\nz\n",
+            Format::Markdown,
+        );
+        let s = section(&doc, "install-it").unwrap();
+        assert_eq!(s.blocks.len(), 4);
+        assert_eq!(section(&doc, "INSTALL IT").unwrap(), s);
+        assert_eq!(section(&doc, "stall").unwrap(), s);
+        assert_eq!(section(&doc, "usage").unwrap().blocks.len(), 2);
+        assert!(section(&doc, "nope").is_none());
+        assert!(section(&doc, "").is_none() && section(&doc, "!!").is_none());
+        assert_eq!(section_id(&doc, "stall").as_deref(), Some("install-it"));
+    }
+
+    #[test]
+    fn includes_stay_inside_the_folder() {
+        let dir = std::env::temp_dir().join(format!("mdvw-inc-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(
+            dir.join("sub/part.adoc"),
+            "== Part\ninclude::deeper.adoc[]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("sub/deeper.adoc"), "deep text").unwrap();
+        let main = dir.join("sub/main.adoc");
+        let out = expand_includes(
+            "= Doc\ninclude::part.adoc[leveloffset=+1]\ninclude::../../etc/passwd[]\ninclude::/etc/hosts[]\n",
+            Format::AsciiDoc,
+            &main,
+        );
+        assert!(
+            out.contains("== Part") && out.contains("deep text"),
+            "{out}"
+        );
+        assert!(out.contains("(include not shown: ../../etc/passwd)"));
+        assert!(out.contains("(include not shown: /etc/hosts)"));
+        let doc = parse(&out, Format::AsciiDoc);
+        assert!(format!("{doc:?}").contains("include not shown"));
+        // Indented directives are literal text.
+        assert_eq!(
+            expand_includes("x::\n\n   .. include:: part.adoc\n", Format::Rst, &main),
+            "x::\n\n   .. include:: part.adoc\n"
+        );
+        // A file including itself stops at the depth limit.
+        std::fs::write(dir.join("sub/loop.rst"), ".. include:: loop.rst\n").unwrap();
+        let out = expand_includes(".. include:: loop.rst\n", Format::Rst, &main);
+        assert!(out.contains("(include not shown: loop.rst)"));
+        assert_eq!(
+            expand_includes("include::x[]", Format::Markdown, &main),
+            "include::x[]"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn html_tables_become_tables() {
+        let doc = parse(
+            "<table>\n<thead><tr><th>Name</th><th align=\"right\">Qty</th></tr></thead>\n<tr><td><b>apple</b></td><td>3</td></tr>\n<tr><td>pear</td></tr>\n</table>\n",
+            Format::Markdown,
+        );
+        let [
+            Block::Table {
+                aligns,
+                header,
+                rows,
+            },
+        ] = doc.blocks.as_slice()
+        else {
+            panic!("{:?}", doc.blocks)
+        };
+        assert_eq!(aligns, &[Align::None, Align::Right]);
+        assert_eq!(plain_text(&header[1]), "Qty");
+        assert_eq!(rows.len(), 2);
+        assert!(matches!(&rows[0][0][0], Inline::Strong(_)));
+        assert!(rows[1][1].is_empty());
+        assert!(html::to_table("<p>no table</p>").is_none());
+    }
+
+    #[test]
+    fn html_table_with_surrounding_text_stays_text() {
+        let doc = parse(
+            "<div><p>caption</p><table><tr><td>x</td></tr></table><p>after</p></div>\n",
+            Format::Markdown,
+        );
+        let text = format!("{:?}", doc.blocks);
+        assert!(text.contains("caption") && text.contains("after"), "{text}");
     }
 
     #[test]

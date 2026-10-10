@@ -94,7 +94,8 @@ jobs:
           merge-multiple: true
       - name: Checksums and release notes
         run: |
-          cat dist/*.sha256 | sed 's#  .*/#  #' > dist/SHA256SUMS
+          # Normalize Windows' binary-mode marker (` *file`) to the usual two spaces.
+          cat dist/*.sha256 | sed -e 's#  .*/#  #' -e 's# \*#  #' > dist/SHA256SUMS
           # Section of CHANGELOG.md for this version.
           awk -v v="${GITHUB_REF_NAME#v}" '
             /^## / { found = ($0 ~ "\\[" v "\\]"); next }

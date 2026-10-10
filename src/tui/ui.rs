@@ -43,6 +43,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Mode::Help => draw_help(f, app, area),
         Mode::Info => draw_info(f, app, area),
         Mode::Finder => draw_finder(f, app, area),
+        Mode::Grep => draw_grep(f, app, area),
         _ => {}
     }
 }
@@ -134,6 +135,69 @@ fn draw_files(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(Paragraph::new(lines), inner);
 }
 
+fn draw_grep(f: &mut Frame, app: &App, area: Rect) {
+    let t = &app.theme;
+    let g = &app.grep;
+    let w = (area.width * 4 / 5).clamp(30.min(area.width), area.width);
+    let h = (area.height * 4 / 5).max(5.min(area.height));
+    let rect = Rect::new(
+        area.x + (area.width - w) / 2,
+        area.y + (area.height - h) / 3,
+        w,
+        h,
+    );
+    let (a, b) = g.input.split();
+    let status = if g.ran.is_empty() || g.ran != g.input.text {
+        "Enter to search".to_string()
+    } else if g.hits.is_empty() {
+        "no matches".to_string()
+    } else {
+        let more = if g.truncated { "+" } else { "" };
+        format!("{}/{}{more}  Enter opens", g.selected + 1, g.hits.len())
+    };
+    let mut lines = vec![
+        TLine::from(vec![
+            TSpan::styled(" / ", app.depth.adapt(t.ui_accent)),
+            TSpan::raw(a),
+            TSpan::styled("▏", app.depth.adapt(t.ui_accent)),
+            TSpan::raw(b),
+            TSpan::styled(format!("  {status}"), app.depth.adapt(t.dim)),
+        ]),
+        TLine::raw(""),
+    ];
+    let rows = (h as usize).saturating_sub(4).max(1);
+    let offset = g.selected.saturating_sub(rows.saturating_sub(1));
+    let inner_w = w.saturating_sub(4) as usize;
+    for (k, hit) in g.hits.iter().enumerate().skip(offset).take(rows) {
+        let loc = format!(" {}:{}: ", app.files[hit.file].display(), hit.line);
+        let text = truncate(&format!("{loc}{}", hit.text), inner_w);
+        let split = loc.len().min(text.len());
+        let (head, tail) = text.split_at(if text.is_char_boundary(split) {
+            split
+        } else {
+            0
+        });
+        let mut loc_style = app.depth.adapt(t.dim);
+        let mut text_style = app.depth.adapt(t.text);
+        if k == g.selected {
+            loc_style = loc_style.add_modifier(Modifier::REVERSED);
+            text_style = text_style.add_modifier(Modifier::REVERSED);
+        }
+        lines.push(TLine::from(vec![
+            TSpan::styled(head.to_string(), loc_style),
+            TSpan::styled(tail.to_string(), text_style),
+        ]));
+    }
+    f.render_widget(Clear, rect);
+    let block = Block::new()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(app.depth.adapt(t.dim))
+        .title(format!(" Search {} files ", app.files.len()))
+        .style(app.depth.adapt(t.text));
+    f.render_widget(Paragraph::new(lines).block(block), rect);
+}
+
 fn draw_finder(f: &mut Frame, app: &App, area: Rect) {
     let t = &app.theme;
     let w = (area.width * 3 / 5).clamp(30.min(area.width), area.width);
@@ -153,10 +217,15 @@ fn draw_finder(f: &mut Frame, app: &App, area: Rect) {
     let mut lines = vec![
         TLine::from(vec![
             TSpan::styled(" > ", app.depth.adapt(t.ui_accent)),
-            TSpan::raw(app.finder.input.as_str()),
+            TSpan::raw(app.finder.input.split().0),
             TSpan::styled("▏", app.depth.adapt(t.ui_accent)),
+            TSpan::raw(app.finder.input.split().1),
             TSpan::styled(
-                format!("  {}/{}", app.finder.results.len(), app.files.len()),
+                format!(
+                    "  {}/{}",
+                    app.finder.results.len(),
+                    app.finder_items().len()
+                ),
                 app.depth.adapt(t.dim),
             ),
         ]),
@@ -172,7 +241,7 @@ fn draw_finder(f: &mut Frame, app: &App, area: Rect) {
         .skip(offset)
         .take(rows)
     {
-        let text = truncate(&format!(" {}", app.files[i].display()), inner_w);
+        let text = truncate(&format!(" {}", app.finder_items()[i].display()), inner_w);
         let mut style = app.depth.adapt(t.text);
         if k == app.finder.selected {
             style = style.add_modifier(Modifier::REVERSED);
@@ -190,13 +259,24 @@ fn draw_finder(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(app.depth.adapt(t.dim))
-        .title(" Open file ")
+        .title(if app.finder.recent.is_some() {
+            " Recent files "
+        } else {
+            " Open file "
+        })
         .style(app.depth.adapt(t.text));
     f.render_widget(Paragraph::new(lines).block(block), rect);
 }
 
 fn draw_toc(f: &mut Frame, app: &mut App, area: Rect) {
-    let inner = panel_block(f, app, area, " Contents ");
+    let title = if app.toc_filtering || !app.toc_filter.is_empty() {
+        let (a, b) = app.toc_filter.split();
+        let cursor = if app.toc_filtering { "▏" } else { "" };
+        format!(" Contents /{a}{cursor}{b} ")
+    } else {
+        " Contents ".to_string()
+    };
+    let inner = panel_block(f, app, area, &title);
     let t = &app.theme;
     let focused = app.focus == Focus::Panel;
 
@@ -213,14 +293,19 @@ fn draw_toc(f: &mut Frame, app: &mut App, area: Rect) {
         .unwrap_or(1);
     let width = inner.width as usize;
 
-    let lines: Vec<TLine> = app
-        .rendered
-        .headings
+    let entries = app.toc_entries();
+    if entries.is_empty() {
+        let msg = TLine::styled(" no matching headings", app.depth.adapt(t.dim));
+        f.render_widget(Paragraph::new(msg), inner);
+        return;
+    }
+    let lines: Vec<TLine> = entries
         .iter()
         .enumerate()
         .skip(offset)
         .take(height)
-        .map(|(i, h)| {
+        .map(|(row, &i)| {
+            let h = &app.rendered.headings[i];
             let indent = "  ".repeat((h.level - min_level) as usize);
             let marker = if Some(i) == current { "▸ " } else { "  " };
             let mut text = format!("{marker}{indent}{}", h.title);
@@ -233,7 +318,7 @@ fn draw_toc(f: &mut Frame, app: &mut App, area: Rect) {
             if Some(i) == current {
                 style = style.patch(t.ui_accent);
             }
-            if i == highlight && focused {
+            if row == highlight && focused {
                 style = style.add_modifier(Modifier::REVERSED);
             }
             TLine::from(TSpan::styled(text, app.depth.adapt(style)))
@@ -269,7 +354,14 @@ fn draw_content(f: &mut Frame, app: &mut App, area: Rect) {
 
     let end = (app.scroll + text.height as usize).min(app.rendered.lines.len());
     let lines: Vec<TLine> = (app.scroll..end)
-        .map(|n| to_tline(app, n, &app.rendered.lines[n]))
+        .map(|n| {
+            let line = &app.rendered.lines[n];
+            let tl = to_tline(app, n, line);
+            match line.hscroll {
+                Some(inner) => shift_code_row(tl, app.hscroll, inner as usize),
+                None => tl,
+            }
+        })
         .collect();
     f.render_widget(Paragraph::new(lines), text);
     draw_images(f, app, text, end);
@@ -296,15 +388,16 @@ fn draw_images(f: &mut Frame, app: &mut App, text: Rect, end: usize) {
             (n + rows as usize <= end).then_some((n, url, rows))
         })
         .collect();
-    let base = app.source.path.clone();
+    // Disjoint field borrows: no copy of the document text per frame.
+    let (src, scroll) = (&app.source, app.scroll);
     let Some(images) = app.images.as_mut() else {
         return;
     };
     for (n, url, rows) in slots {
-        let Some(proto) = images.protocol(&url, base.as_deref()) else {
+        let Some(proto) = images.protocol(&url, src) else {
             continue;
         };
-        let area = Rect::new(text.x, text.y + (n - app.scroll) as u16, text.width, rows);
+        let area = Rect::new(text.x, text.y + (n - scroll) as u16, text.width, rows);
         f.render_widget(Clear, area);
         f.render_stateful_widget(ratatui_image::StatefulImage::default(), area, proto);
     }
@@ -362,6 +455,56 @@ fn to_tline<'a>(app: &App, n: usize, line: &'a Line) -> TLine<'a> {
     TLine::from(spans)
 }
 
+/// Shows columns `h..h + inner` of an unwrapped `│ text │` code row.
+fn shift_code_row(line: TLine<'_>, h: usize, inner: usize) -> TLine<'static> {
+    let total: usize = line.spans.iter().map(|s| s.content.width()).sum();
+    let body_end = total.saturating_sub(2);
+    let mut spans = slice_cols(&line.spans, 0, 2);
+    let body = slice_cols(
+        &line.spans,
+        (2 + h).min(body_end),
+        (2 + h + inner).min(body_end),
+    );
+    let shown: usize = body.iter().map(|s| s.content.width()).sum();
+    spans.extend(body);
+    if shown < inner {
+        // The span before the closing border is the row's padding.
+        let n = line.spans.len();
+        let style = line
+            .spans
+            .get(n.saturating_sub(2))
+            .map(|s| s.style)
+            .unwrap_or_default();
+        spans.push(TSpan::styled(" ".repeat(inner - shown), style));
+    }
+    spans.extend(slice_cols(&line.spans, body_end, total));
+    TLine::from(spans)
+}
+
+/// Display columns `start..end` of `spans`, measured per grapheme like the
+/// layout; a wide grapheme cut in half becomes spaces.
+fn slice_cols(spans: &[TSpan<'_>], start: usize, end: usize) -> Vec<TSpan<'static>> {
+    use unicode_segmentation::UnicodeSegmentation;
+    let mut out = Vec::new();
+    let mut col = 0;
+    for s in spans {
+        let mut text = String::new();
+        for g in s.content.graphemes(true) {
+            let w = g.width();
+            if col >= start && col + w <= end {
+                text.push_str(g);
+            } else if col < end && col + w > start {
+                text.push_str(&" ".repeat((col + w).min(end) - col.max(start)));
+            }
+            col += w;
+        }
+        if !text.is_empty() {
+            out.push(TSpan::styled(text, s.style));
+        }
+    }
+    out
+}
+
 fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     let t = &app.theme;
     let bar = app.depth.adapt(t.ui_bar);
@@ -370,8 +513,9 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     if app.mode == Mode::Search {
         let line = TLine::from(vec![
             TSpan::styled(" /", accent),
-            TSpan::styled(app.search.input.as_str(), bar),
+            TSpan::styled(app.search.input.split().0, bar),
             TSpan::styled("▏", accent),
+            TSpan::styled(app.search.input.split().1, bar),
             TSpan::styled(
                 format!("  {}", match_count(app)),
                 app.depth.adapt(t.dim.patch(t.ui_bar)),
@@ -400,6 +544,12 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let mut right = String::new();
+    if let Some(c) = app.count {
+        right.push_str(&format!(" {c} │"));
+    }
+    if app.hscroll > 0 {
+        right.push_str(&format!(" →{} │", app.hscroll));
+    }
     if app.watcher.is_some() {
         right.push_str(" ● watch │");
     }
@@ -425,33 +575,6 @@ fn match_count(app: &App) -> String {
         (None, n) => format!("[{n}]"),
     }
 }
-
-pub const HELP: &[(&str, &str)] = &[
-    ("j / k / ↓ / ↑", "Scroll one line"),
-    ("d / u, Ctrl-d / Ctrl-u", "Half page down / up"),
-    ("Space / b, PgDn / PgUp", "Page down / up"),
-    ("g / G, Home / End", "Top / bottom"),
-    ("] / [", "Next / previous heading"),
-    ("t", "Table of contents (h/l switch focus)"),
-    ("F", "File panel (directory mode)"),
-    ("o, Ctrl-p", "Fuzzy find and open a file"),
-    ("/  n / N", "Search (regex, smart-case), next / prev"),
-    ("Tab / Shift-Tab", "Next / previous link"),
-    ("Enter", "Open focused link"),
-    ("Backspace, Ctrl-o", "Go back"),
-    ("T", "Cycle color theme"),
-    ("y 1-9 / y y", "Copy code block [n] / on screen"),
-    ("m <a-z>, ' <a-z>", "Set / jump to bookmark"),
-    ("e", "Edit file in $EDITOR"),
-    ("w", "Watch file for changes"),
-    ("z", "Toggle focus mode / full width"),
-    ("r", "Reload file"),
-    ("M", "Toggle mouse capture (text selection)"),
-    ("Esc", "Clear search / link focus, then quit"),
-    ("i", "Document info and front matter"),
-    ("?", "Toggle this help"),
-    ("q", "Quit"),
-];
 
 fn draw_info(f: &mut Frame, app: &App, area: Rect) {
     let t = &app.theme;
@@ -518,17 +641,38 @@ fn popup(f: &mut Frame, app: &App, area: Rect, title: &str, lines: Vec<TLine>) {
     );
 }
 
-fn draw_help(f: &mut Frame, app: &App, area: Rect) {
+fn draw_help(f: &mut Frame, app: &mut App, area: Rect) {
     let t = &app.theme;
-    let key_w = HELP.iter().map(|(k, _)| k.width()).max().unwrap_or(0);
-    let lines: Vec<TLine> = HELP
-        .iter()
+    let rows = app.keymap.help();
+    let key_w = rows.iter().map(|(k, _)| k.width()).max().unwrap_or(0);
+    // Lines are cut to fit so each takes one row and scrolling stays exact.
+    let fit = (area.width as usize).saturating_sub(4);
+    let desc_w = fit.saturating_sub(key_w + 3).max(1);
+    let mut lines: Vec<TLine> = rows
+        .into_iter()
         .map(|(k, d)| {
             TLine::from(vec![
-                TSpan::styled(format!(" {k:<key_w$}  "), app.depth.adapt(t.ui_accent)),
-                TSpan::raw(*d),
+                TSpan::styled(
+                    truncate(&format!(" {k:<key_w$}  "), fit),
+                    app.depth.adapt(t.ui_accent),
+                ),
+                TSpan::raw(truncate(d, desc_w)),
             ])
         })
         .collect();
-    popup(f, app, area, " Keys ", lines);
+    lines.push(TLine::raw(""));
+    lines.push(TLine::styled(
+        truncate(" Prefix a count: 5j, 3], 42G (line 42), 50%", fit),
+        app.depth.adapt(t.dim),
+    ));
+    let visible = area.height.saturating_sub(2) as usize;
+    let max = lines.len().saturating_sub(visible);
+    app.help_scroll = app.help_scroll.min(max);
+    let title = if max > 0 {
+        " Keys (j/k to scroll) "
+    } else {
+        " Keys "
+    };
+    let lines = lines.split_off(app.help_scroll);
+    popup(f, app, area, title, lines);
 }

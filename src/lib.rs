@@ -6,6 +6,7 @@
 pub mod clipboard;
 pub mod color;
 pub mod config;
+pub mod export;
 pub mod files;
 pub mod highlight;
 pub mod layout;
@@ -13,6 +14,8 @@ pub mod links;
 pub mod math;
 pub mod mermaid;
 pub mod parser;
+#[cfg(feature = "remote")]
+pub mod remote;
 pub mod render;
 pub mod search;
 pub mod state;
@@ -34,15 +37,20 @@ pub struct PrintOptions<'a> {
 
 /// Parses and renders `src` to a string (ANSI-styled unless `depth` is `None`).
 pub fn render_to_string(src: &str, format: Format, opts: &PrintOptions) -> String {
-    let doc = parser::parse(src, format);
+    render_document(&parser::parse(src, format), opts)
+}
+
+/// Renders an already parsed document.
+pub fn render_document(doc: &parser::Document, opts: &PrintOptions) -> String {
     let rendered = layout::layout(
-        &doc,
+        doc,
         opts.theme,
         &layout::Options {
             width: opts.width,
             code_numbers: false,
             front_matter: true,
             image_rows: Default::default(),
+            wrap_code: true,
         },
     );
     render::ansi::render(

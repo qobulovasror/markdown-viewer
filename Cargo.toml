@@ -36,6 +36,13 @@ toml = "1.1.6"
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"], optional = true }
+url = { version = "2.5", optional = true }
+
+[features]
+default = ["remote"]
+# Open documents from http(s) URLs and GitHub repositories.
+remote = ["dep:ureq", "dep:url"]
 
 [dev-dependencies]
 criterion = "0.8.2"

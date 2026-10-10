@@ -747,7 +747,22 @@ enum Step {
         at: usize,
         text: String,
     },
+    /// Start of a `loop`/`alt`/`opt`/... frame, nested `depth` deep (0 = outermost).
+    FrameStart {
+        depth: usize,
+        title: String,
+    },
+    /// `else` / `and` inside a frame.
+    FrameDivider {
+        depth: usize,
+        title: String,
+    },
+    FrameEnd {
+        depth: usize,
+    },
 }
+
+const FRAMES: &[&str] = &["loop", "alt", "opt", "par", "critical", "break", "rect"];
 
 struct Sequence {
     actors: Vec<String>,
@@ -773,8 +788,34 @@ fn parse_sequence(lines: &[&str]) -> Option<Sequence> {
     };
     let msg_re =
         Regex::new(r"^(.+?)\s*(--?>>|--?>|--?x|--?\))\s*[+-]?\s*(.+?)\s*:\s*(.*)$").ok()?;
+    let mut depth = 0;
     for line in lines {
         let first = line.split_whitespace().next().unwrap_or("");
+        let rest = line[first.len()..].trim();
+        if FRAMES.contains(&first) {
+            // `rect` takes a color, not a title.
+            let title = if first == "rect" {
+                String::new()
+            } else {
+                format!("{first} {rest}").trim().to_string()
+            };
+            seq.steps.push(Step::FrameStart { depth, title });
+            depth += 1;
+            continue;
+        }
+        if matches!(first, "else" | "and" | "option") && depth > 0 {
+            let title = format!("{first} {rest}").trim().to_string();
+            seq.steps.push(Step::FrameDivider {
+                depth: depth - 1,
+                title,
+            });
+            continue;
+        }
+        if first == "end" && depth > 0 {
+            depth -= 1;
+            seq.steps.push(Step::FrameEnd { depth });
+            continue;
+        }
         if first == "participant" || first == "actor" {
             let rest = line[first.len()..].trim();
             match rest.split_once(" as ") {
@@ -812,7 +853,11 @@ fn parse_sequence(lines: &[&str]) -> Option<Sequence> {
                 arrow: op.contains('>'),
             });
         }
-        // loop/alt/opt/end/activate/autonumber ... are ignored.
+        // activate/autonumber ... are ignored.
+    }
+    while depth > 0 {
+        depth -= 1;
+        seq.steps.push(Step::FrameEnd { depth });
     }
     (!seq.actors.is_empty()).then_some(seq)
 }
@@ -838,7 +883,17 @@ impl Sequence {
                 }
             }
         }
-        let mut xs = vec![box_w[0] / 2];
+        // Frames nest inwards from the canvas edges, one column per level.
+        let frame_depth = self
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                Step::FrameStart { depth, .. } => Some(depth + 1),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+        let mut xs = vec![box_w[0] / 2 + frame_depth];
         for g in &gaps {
             xs.push(xs.last().copied().unwrap_or(0) + g);
         }
@@ -852,7 +907,18 @@ impl Sequence {
             })
             .max()
             .unwrap_or(0);
-        let width = xs[n - 1] + (box_w[n - 1] / 2 + 1).max(self_w) + 1;
+        let title_w = self
+            .steps
+            .iter()
+            .filter_map(|s| match s {
+                Step::FrameStart { depth, title } | Step::FrameDivider { depth, title } => {
+                    Some(title.width() + 6 + 2 * depth)
+                }
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0);
+        let width = (xs[n - 1] + (box_w[n - 1] / 2 + 1).max(self_w) + 1 + frame_depth).max(title_w);
         if width > MAX_CANVAS {
             return Vec::new();
         }
@@ -863,6 +929,7 @@ impl Sequence {
                 Step::Message { from, to, .. } if from == to => 3,
                 Step::Message { .. } => 2,
                 Step::Note { .. } => 3,
+                _ => 1,
             })
             .sum::<usize>();
         let mut c = Canvas::new(width + 1, rows + 3);
@@ -877,8 +944,32 @@ impl Sequence {
         draw_boxes(&mut c, 0);
         let mut y = 3;
         let top = y;
+        // Open frames: start row per depth.
+        let mut open: Vec<usize> = Vec::new();
+        let right = |d: usize| width.saturating_sub(1 + d);
         for s in &self.steps {
             match s {
+                Step::FrameStart { depth, title } => {
+                    frame_line(&mut c, *depth, right(*depth), y, ('┌', '┐'), '─', title);
+                    open.push(y);
+                    y += 1;
+                }
+                Step::FrameDivider { depth, title } => {
+                    frame_line(&mut c, *depth, right(*depth), y, ('├', '┤'), '╌', title);
+                    y += 1;
+                }
+                Step::FrameEnd { depth } => {
+                    let start = open.pop().unwrap_or(y);
+                    for cy in start + 1..y {
+                        // Dividers already drew their own edge characters.
+                        if !matches!(c.text[cy * c.w + depth], Some('├')) {
+                            c.put(*depth, cy, '│');
+                            c.put(right(*depth), cy, '│');
+                        }
+                    }
+                    frame_line(&mut c, *depth, right(*depth), y, ('└', '┘'), '─', "");
+                    y += 1;
+                }
                 Step::Message {
                     from,
                     to,
@@ -939,6 +1030,26 @@ impl Sequence {
     }
 }
 
+/// One frame row: corners, fill and an optional `[title]` near the left.
+fn frame_line(
+    c: &mut Canvas,
+    left: usize,
+    right: usize,
+    y: usize,
+    (l, r): (char, char),
+    fill: char,
+    title: &str,
+) {
+    for x in left + 1..right {
+        c.put(x, y, fill);
+    }
+    c.put(left, y, l);
+    c.put(right, y, r);
+    if !title.is_empty() {
+        c.put_str(left + 2, y, &format!("[{title}]"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -988,6 +1099,23 @@ mod tests {
         assert!(out.contains("Hello") && out.contains("Hi") && out.contains("thinks"));
         assert_eq!(out.matches("Alice").count(), 2, "{out}");
         assert!(out.contains('▶') && out.contains('◀'));
+    }
+
+    #[test]
+    fn sequence_frames() {
+        let out = render(
+            "sequenceDiagram\n  A->>B: ping\n  loop every minute\n    alt ok\n      B-->>A: pong\n    else timeout\n      A->>A: retry\n    end\n  end\n  opt\n  B->>A: bye",
+            80,
+        )
+        .unwrap_or_default();
+        let text = out.join("\n");
+        assert!(text.contains("[loop every minute]"), "{text}");
+        assert!(text.contains("[alt ok]") && text.contains("[else timeout]"));
+        assert!(text.contains("[opt]"));
+        // Every frame is closed and its sides line up.
+        assert_eq!(text.matches('┌').count(), text.matches('└').count());
+        let rows: Vec<&String> = out.iter().filter(|l| l.contains("[alt ok]")).collect();
+        assert_eq!(rows.len(), 1);
     }
 
     #[test]

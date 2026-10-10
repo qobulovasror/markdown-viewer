@@ -20,6 +20,7 @@ fn bench(c: &mut Criterion) {
         code_numbers: true,
         front_matter: true,
         image_rows: Default::default(),
+        wrap_code: true,
     };
     c.bench_function("parse 1MB markdown", |b| {
         b.iter(|| parse(black_box(&src), Format::Markdown))

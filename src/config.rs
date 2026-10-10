@@ -1,12 +1,13 @@
 //! Optional user configuration (`~/.config/mdvw/config.toml`).
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Config {
     /// Theme name; unset means auto light/dark.
     pub theme: Option<String>,
@@ -21,6 +22,15 @@ pub struct Config {
     pub remember_position: bool,
     /// Show images when the terminal supports Kitty, iTerm2 or Sixel graphics.
     pub images: bool,
+    /// Download images from the web (also those of web documents).
+    pub remote_images: bool,
+    /// Wrap long code lines; `false` keeps them whole and `←`/`→` scroll them.
+    pub wrap_code: bool,
+    /// Key bindings by action name, e.g. `quit = ["q", "esc"]`.
+    pub keys: BTreeMap<String, KeyList>,
+    /// Problems found while loading, e.g. unknown keys (shown, not fatal).
+    #[serde(skip)]
+    pub warnings: Vec<String>,
 }
 
 impl Default for Config {
@@ -34,6 +44,27 @@ impl Default for Config {
             toc: false,
             remember_position: true,
             images: true,
+            remote_images: false,
+            wrap_code: true,
+            keys: BTreeMap::new(),
+            warnings: Vec::new(),
+        }
+    }
+}
+
+/// One key or a list of keys.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum KeyList {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl KeyList {
+    pub fn as_slice(&self) -> &[String] {
+        match self {
+            KeyList::One(s) => std::slice::from_ref(s),
+            KeyList::Many(v) => v,
         }
     }
 }
@@ -62,11 +93,41 @@ impl Config {
         };
         match std::fs::read_to_string(&path) {
             Ok(text) => {
-                toml::from_str(&text).with_context(|| format!("invalid config {}", path.display()))
+                Config::parse(&text).with_context(|| format!("invalid config {}", path.display()))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
             Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
         }
+    }
+}
+
+/// Top-level keys of the config file.
+const KEYS: &[&str] = &[
+    "theme",
+    "max_width",
+    "mouse",
+    "watch",
+    "hyperlinks",
+    "toc",
+    "remember_position",
+    "images",
+    "remote_images",
+    "wrap_code",
+    "keys",
+];
+
+impl Config {
+    /// Parses config text; unknown keys become warnings so a newer config
+    /// still works with an older mdvw.
+    pub fn parse(text: &str) -> Result<Config> {
+        let table: toml::Table = toml::from_str(text)?;
+        let mut cfg: Config = table.clone().try_into()?;
+        cfg.warnings = table
+            .keys()
+            .filter(|k| !KEYS.contains(&k.as_str()))
+            .map(|k| format!("unknown config key '{k}'"))
+            .collect();
+        Ok(cfg)
     }
 }
 
@@ -83,7 +144,26 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_keys() {
-        assert!(toml::from_str::<Config>("colour = 1").is_err());
+    fn warns_on_unknown_keys() {
+        let c = Config::parse("colour = 1\nmouse = false\n").unwrap();
+        assert_eq!(c.warnings, ["unknown config key 'colour'"]);
+        assert!(!c.mouse);
+        assert!(Config::parse("mouse = \"yes\"").is_err());
+        let c = Config::parse("[keys]\nquit = \"x\"\ndown = [\"j\", \"ctrl-n\"]\n").unwrap();
+        assert_eq!(c.keys["down"].as_slice(), ["j", "ctrl-n"]);
+    }
+
+    #[test]
+    fn keys_list_is_complete() {
+        let mut keys = BTreeMap::new();
+        keys.insert("quit".into(), KeyList::One("q".into()));
+        let cfg = Config {
+            theme: Some("x".into()),
+            keys,
+            ..Default::default()
+        };
+        let table = toml::Table::try_from(cfg).unwrap();
+        assert!(table.keys().all(|k| KEYS.contains(&k.as_str())));
+        assert_eq!(table.len(), KEYS.len());
     }
 }
