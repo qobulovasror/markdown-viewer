@@ -15,9 +15,10 @@
   <img alt="mdvw demo" src="assets/demo.gif" width="800">
 </p>
 
-`mdvw` renders documents with colors, tables, syntax-highlighted code and clickable links. Read them in
-a full-screen viewer with a table of contents, search and live reload, or pipe the rendered text to
-stdout. It is a single binary, starts in milliseconds and needs no configuration.
+`mdvw` renders documents with colors, tables, syntax-highlighted code, diagrams and clickable links.
+Read local files, whole folders or documents straight from the web and GitHub in a full-screen viewer
+with a table of contents, search and live reload, pipe the rendered text to stdout, or export it as
+HTML. It is a single binary, starts in milliseconds and needs no configuration.
 
 ```sh
 mdvw README.md        # read
@@ -72,9 +73,11 @@ mdvw -p x.md | less -R
 - **Export**: `mdvw --export html notes.md > notes.html` writes a standalone, script-free page.
 - **Math**: `$\sum_{i=1}^n x_i^2$` renders as `∑ᵢ₌₁ⁿ xᵢ²`. Also **emoji** shortcodes (`:rocket:` → 🚀)
   and common inline HTML (`<kbd>`, `<sup>`, `<img>`, `<a>`).
-- **Viewer**: vim/less keys, regex search, link navigation with history, bookmarks, copy a code block,
-  `$EDITOR` integration, a remembered reading position, focus (max-width) mode, a file panel and a
-  fuzzy finder.
+- **Viewer**: vim/less keys with counts (`5j`, `50%`), regex search with history, link navigation
+  with back/forward, bookmarks, copy a code block or link, `$EDITOR` integration at the current
+  heading, a remembered reading position, focus (max-width) mode, a file panel, a fuzzy finder,
+  recent files, search across a whole folder (`S`), a filterable table of contents and sideways
+  scrolling of long code lines. Every key can be rebound in the config file.
 - **Themes**: `dark`, `light`, `dracula`, `nord` and `gruvbox`, plus your own (see
   Configuration). The default follows the terminal background. Colors fall back to 256/16 colors,
   and `NO_COLOR` is honored.
