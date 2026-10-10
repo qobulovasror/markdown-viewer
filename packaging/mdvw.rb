@@ -1,5 +1,7 @@
-# Homebrew formula. After a release, copy each sha256 from the release's
-# SHA256SUMS file, then publish this in a tap repo (qobulovasror/homebrew-tap).
+# Homebrew formula. After a release, run
+#   packaging/update-formula.sh vX.Y.Z SHA256SUMS packaging/mdvw.rb
+# with the release's SHA256SUMS file, then publish this in the tap repo
+# (qobulovasror/homebrew-tap).
 class Mdvw < Formula
   desc "Fast terminal viewer for Markdown, Org, AsciiDoc and reStructuredText"
   homepage "https://github.com/qobulovasror/markdown-viewer"
